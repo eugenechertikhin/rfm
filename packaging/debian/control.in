@@ -1,0 +1,13 @@
+Package: rfm
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: @ARCH@
+Maintainer: Eugene Chertikhin <e.chertikhin@gmail.com>
+Depends: libc6
+Recommends: openssh-client, curl
+Description: lightweight terminal file manager
+ Panel-based console file manager written in Rust: multiple panels,
+ command line with real shell screen, archives and remote locations
+ (sftp/ftp/http) as virtual file systems, built-in viewer and editor,
+ mouse support and configurable color themes.

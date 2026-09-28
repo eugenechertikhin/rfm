@@ -1,8 +1,9 @@
 [package]
 name = "rfm"
-version = "0.1.0"
+version = "0.1.3"
 edition = "2021"
-description = "rfm — a lightweight rust file manager"
+description = "rfm — a lightweight terminal file manager"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 ratatui = "0.29"
@@ -17,4 +18,3 @@ libc = "0.2"
 opt-level = "z"
 lto = true
 strip = true
-

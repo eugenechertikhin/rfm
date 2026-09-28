@@ -1,0 +1,36 @@
+Name:           rfm
+Version:        @VERSION@
+Release:        1%{?dist}
+Summary:        Lightweight terminal file manager
+License:        GPL-3.0-or-later
+URL:            https://github.com/eugenechertikhin/rfm
+Source0:        %{name}-%{version}.tar.gz
+
+BuildRequires:  cargo
+Recommends:     openssh-clients
+Recommends:     curl
+
+%description
+Panel-based console file manager written in Rust: multiple panels,
+command line with real shell screen, archives and remote locations
+(sftp/ftp/http) as virtual file systems, built-in viewer and editor,
+mouse support and configurable color themes.
+
+%prep
+%autosetup
+
+%build
+cargo build --release --locked
+
+%install
+install -Dm755 target/release/%{name} %{buildroot}%{_bindir}/%{name}
+install -Dm644 README.md %{buildroot}%{_docdir}/%{name}/README.md
+
+%files
+%{_bindir}/%{name}
+%{_docdir}/%{name}/README.md
+
+%changelog
+* Mon Sep 28 2026 Eugene Chertikhin <e.chertikhin@gmail.com> - @VERSION@-1
+- Built from source tree
+
