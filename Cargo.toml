@@ -1,0 +1,20 @@
+[package]
+name = "rfm"
+version = "0.1.0"
+edition = "2021"
+description = "rfm — a lightweight rust file manager"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+unicode-width = "0.2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "5"
+libc = "0.2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+
