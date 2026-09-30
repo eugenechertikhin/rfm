@@ -2,7 +2,8 @@
 //! стрелки двигают курсор по символам (`→` в конце строки — на начало следующей),
 //! печатные символы вставляются в позицию курсора. Правки живут в буфере;
 //! на диск — только по `Ctrl+x s` (сохранить) / `Ctrl+x x` (сохранить и выйти).
-//! `Esc`/`Ctrl+x q` — выход БЕЗ сохранения (несохранённое отбрасывается).
+//! `Esc`/`Ctrl+x q` — выход БЕЗ сохранения (несохранённое отбрасывается); при
+//! несохранённых правках — сначала диалог подтверждения.
 
 use super::*;
 use std::fs;
@@ -222,6 +223,9 @@ impl Editor {
     }
 }
 
+/// Вопрос при закрытии редактора с несохранёнными правками.
+pub(super) const EDITOR_QUIT_MSG: &str = "File has been modified. Quit without saving?";
+
 impl App {
     /// Открывает файл во встроенном редакторе в активной панели.
     pub(super) fn open_editor(&mut self, path: &std::path::Path) {
@@ -235,8 +239,22 @@ impl App {
         }
     }
 
+    /// Закрытие без сохранения (`Esc` / `Ctrl+x q`): при несохранённых правках —
+    /// сначала диалог подтверждения.
+    fn quit_editor(&mut self) {
+        let dirty = self.active_panel().editor.as_ref().is_some_and(|e| e.dirty);
+        if dirty {
+            self.dialog = Some(Dialog::Confirm {
+                message: EDITOR_QUIT_MSG.to_string(),
+                op: PendingOp::QuitEditor,
+            });
+        } else {
+            self.close_editor();
+        }
+    }
+
     /// Закрывает редактор активной панели.
-    fn close_editor(&mut self) {
+    pub(super) fn close_editor(&mut self) {
         self.active_panel_mut().editor = None;
         self.panels_dirty = true;
         self.status.clear();
@@ -281,7 +299,7 @@ impl App {
                         self.close_editor();
                     }
                 }
-                KeyCode::Char('q') => self.close_editor(),
+                KeyCode::Char('q') => self.quit_editor(),
                 KeyCode::Char('h') => self.open_help(),
                 _ => {} // прочее (в т.ч. Esc) — отмена аккорда
             }
@@ -295,7 +313,7 @@ impl App {
             return Action::Redraw; // прочие Ctrl-комбинации в тексте не печатаются
         }
         if key.code == KeyCode::Esc {
-            self.close_editor();
+            self.quit_editor();
             return Action::Redraw;
         }
         let mut modified = false;

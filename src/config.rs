@@ -59,9 +59,12 @@ pub struct ThemeConfig {
     pub cursor_bg: String,
     pub cursor_fg: String,
     pub mark_fg: String,
-    /// Цвета командной строки (по умолчанию наследуют bg/fg).
+    /// Цвета командной строки.
     pub cmdline_bg: String,
     pub cmdline_fg: String,
+    /// Фон/текст кнопки в фокусе в диалогах.
+    pub button_sel_bg: String,
+    pub button_sel_fg: String,
 }
 
 /// Описание одного типа архива (секция `[[archive]]`).
@@ -175,6 +178,8 @@ pub fn builtin_themes() -> Vec<ThemeConfig> {
             mark_fg: "yellow".to_string(),
             cmdline_bg: "#262626".to_string(),
             cmdline_fg: "#dcdcdc".to_string(),
+            button_sel_bg: "black".to_string(),
+            button_sel_fg: "#dcdcdc".to_string(),
         },
         ThemeConfig {
             name: "mc".to_string(),
@@ -185,6 +190,8 @@ pub fn builtin_themes() -> Vec<ThemeConfig> {
             mark_fg: "yellow".to_string(),
             cmdline_bg: "black".to_string(),
             cmdline_fg: "white".to_string(),
+            button_sel_bg: "yellow".to_string(),
+            button_sel_fg: "black".to_string(),
         },
     ]
 }

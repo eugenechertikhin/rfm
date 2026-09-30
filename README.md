@@ -20,9 +20,23 @@ cargo build --release
 ./target/release/rfm
 ```
 
+## Packaging
+
+```sh
+make debug      # cargo build
+make release    # cargo build --release
+make debian     # build/rfm_<version>_<arch>.deb        (needs dpkg-deb)
+make arch       # build/arch/rfm-<version>-1-*.pkg.tar.* (needs makepkg, run as non-root)
+make rpm        # build/rpm/RPMS/<arch>/rfm-<version>-1.*.rpm (needs rpmbuild)
+make clean
+```
+
+The version comes from the `VERSION` file. `arch` and `rpm` build from a
+`git archive` of `HEAD`, so commit your changes first.
+
 ## Keys (essentials)
 
-No DOS like short-keys with functions keys (F1, etc). only ctrl shortcuts, help finger memory from shell and/or emcas.
+No DOS-style function-key shortcuts (F1, …) — only Ctrl shortcuts, to reuse muscle memory from the shell and/or Emacs.
 
 | Key | Action |
 |-----|--------|

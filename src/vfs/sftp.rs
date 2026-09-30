@@ -165,17 +165,20 @@ pub fn parse_ls(stdout: &str) -> Vec<VfsEntry> {
             Some(n) if !n.is_empty() => n,
             _ => continue,
         };
-        // симлинк: "name -> target"
-        let name = name_raw.split(" -> ").next().unwrap_or(name_raw).to_string();
-        if name == "." || name == ".." {
-            continue;
-        }
         let kind = match mode.as_bytes()[0] {
             b'd' => EntryKind::Dir,
             b'l' => EntryKind::Symlink,
             b'-' => EntryKind::File,
             _ => EntryKind::Other,
         };
+        // симлинк: "name -> target" (только для `l` — у обычного файла " -> " может быть в имени)
+        let (name, symlink_target) = match name_raw.split_once(" -> ") {
+            Some((n, t)) if kind == EntryKind::Symlink => (n.to_string(), Some(t.to_string())),
+            _ => (name_raw.to_string(), None),
+        };
+        if name == "." || name == ".." {
+            continue;
+        }
         let perms = parse_mode(mode);
         let is_dir = kind == EntryKind::Dir;
         let executable =
@@ -189,7 +192,7 @@ pub fn parse_ls(stdout: &str) -> Vec<VfsEntry> {
             group,
             mtime: None,
             executable,
-            symlink_target: None,
+            symlink_target,
             target_is_dir: false,
             depth: 0,
         });

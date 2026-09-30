@@ -3,17 +3,20 @@
 mod cmdline;
 mod complete;
 mod dialog;
+pub use dialog::dialog_buttons;
 mod editor;
 mod mouse;
 mod panel;
 mod search;
+mod select;
 mod settings;
 mod viewer;
 pub use cmdline::CmdLine;
 pub use complete::Completion;
 pub use editor::Editor;
+pub use select::marked_summary;
 pub use panel::{Panel, SortKey};
-pub use settings::{SettingId, SettingRow, SettingsState, SETTINGS_FIRST, SETTINGS_ROWS};
+pub use settings::{SettingId, SettingRow, SettingsState, SETTINGS_FIRST, SETTINGS_LEFT};
 pub use viewer::Viewer;
 use complete::{complete_key, CompleteKey};
 use panel::toggle_sort_key;
@@ -83,6 +86,10 @@ pub enum PendingOp {
     MkDir(PathBuf),
     /// Подключиться к FTP с введённым паролем (пароль приходит как «аргумент» диалога).
     FtpConnect(crate::vfs::ftp::FtpTarget),
+    /// Пометить (`true`) / снять пометку (`false`) по маске (маска — из ввода).
+    Select(bool),
+    /// Закрыть редактор активной панели без сохранения (подтверждение при `*`).
+    QuitEditor,
 }
 
 /// Модальный диалог.
@@ -143,6 +150,8 @@ pub struct App {
     pub prefix: Prefix,
     /// Активный модальный диалог (подтверждение/ввод).
     pub dialog: Option<Dialog>,
+    /// Кнопка диалога в фокусе (`Tab` — следующая, `Enter` — нажать); 0 при открытии.
+    pub dialog_btn: usize,
     /// Окно помощи (если открыто) — как просмотрщик со скроллом.
     pub help: Option<Viewer>,
     /// Активный инкрементальный поиск по списку файлов.
@@ -161,6 +170,8 @@ pub struct App {
     pub prompt: String,
     /// Активный выбор варианта автодополнения (`Shift+Tab`), если их несколько.
     pub completion: Option<Completion>,
+    /// Последняя маска select/unselect (только в памяти, не персистится).
+    pub last_mask: Option<String>,
 }
 
 impl App {
@@ -222,6 +233,7 @@ impl App {
             status: String::new(),
             prefix: Prefix::None,
             dialog: None,
+            dialog_btn: 0,
             help: None,
             search: None,
             settings: None,
@@ -235,6 +247,7 @@ impl App {
             last_click: None,
             prompt,
             completion: None,
+            last_mask: None,
         }
     }
 
@@ -347,11 +360,15 @@ impl App {
     }
 
     /// Открывает экран настроек (`Ctrl+x x`).
-    fn open_settings(&mut self) {
+    pub(super) fn open_settings(&mut self) {
         self.settings = Some(SettingsState {
             sel: SETTINGS_FIRST,
             dirty: false,
+            saved: false,
             editing: None,
+            button: 0,
+            orig_config: self.config.clone(),
+            orig_panels: self.panel_settings(),
         });
     }
 
@@ -535,6 +552,11 @@ impl App {
                 Action::Redraw
             }
 
+            // `+`/`-` в пустой командной строке — пометка по маске.
+            KeyCode::Char(c @ ('+' | '-')) if !ctrl && !alt && self.cmdline.chars.is_empty() => {
+                self.open_select_dialog(c == '+');
+                Action::Redraw
+            }
             KeyCode::Char(c) if !ctrl && !alt => {
                 self.cmdline.insert(c);
                 self.hist_nav = None;
@@ -672,7 +694,8 @@ impl App {
         let Some(e) = panel.entries.get(panel.cursor) else {
             return;
         };
-        let quoted = shell::shell_quote(&e.name);
+        // Имя в кавычках + пробел — можно сразу вставлять следующее.
+        let quoted = format!("{} ", shell::shell_quote(&e.name));
         for c in quoted.chars() {
             self.cmdline.insert(c);
         }

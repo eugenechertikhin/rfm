@@ -55,6 +55,16 @@ lrwxrwxrwx  1 user group     7 Mar  3 09:15 link -> target
     let l = &items[2];
     assert_eq!(l.name, "link"); // симлинк без " -> target"
     assert_eq!(l.kind, EntryKind::Symlink);
+    assert_eq!(l.symlink_target.as_deref(), Some("target"));
+    assert_eq!(d.symlink_target, None);
+}
+
+#[test]
+fn parse_ls_arrow_in_regular_file_name_kept() {
+    let out = "-rw-r--r--  1 user group 5 Mar  3 09:15 a -> b\n";
+    let items = parse_ls(out);
+    assert_eq!(items[0].name, "a -> b"); // не симлинк — имя целиком
+    assert_eq!(items[0].symlink_target, None);
 }
 
 #[test]

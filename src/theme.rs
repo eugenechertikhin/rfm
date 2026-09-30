@@ -14,6 +14,9 @@ pub struct Theme {
     /// Фон/текст командной строки (внизу экрана).
     pub cmdline_bg: Color,
     pub cmdline_fg: Color,
+    /// Фон/текст кнопки диалога в фокусе.
+    pub button_sel_bg: Color,
+    pub button_sel_fg: Color,
 }
 
 impl Theme {
@@ -28,23 +31,26 @@ impl Theme {
             mark_fg: Color::Yellow,
             cmdline_bg: Color::Rgb(38, 38, 38),
             cmdline_fg: Color::Rgb(220, 220, 220),
+            button_sel_bg: Color::Black,
+            button_sel_fg: Color::Rgb(220, 220, 220),
         }
     }
 
-    /// Собирает тему из конфига; неразобранные/пустые цвета берутся из дефолта.
-    /// Цвета командной строки по умолчанию наследуют bg/fg темы.
+    /// Собирает тему из конфига; любой пустой/неразобранный цвет берётся
+    /// из дефолтной темы (той, что применяется при старте без конфига).
     pub fn from_config(tc: &ThemeConfig) -> Self {
         let d = Self::default_dark();
-        let bg = parse_color(&tc.bg).unwrap_or(d.bg);
-        let fg = parse_color(&tc.fg).unwrap_or(d.fg);
+        let c = |s: &str, dflt: Color| parse_color(s).unwrap_or(dflt);
         Self {
-            bg,
-            fg,
-            cursor_bg: parse_color(&tc.cursor_bg).unwrap_or(d.cursor_bg),
-            cursor_fg: parse_color(&tc.cursor_fg).unwrap_or(d.cursor_fg),
-            mark_fg: parse_color(&tc.mark_fg).unwrap_or(d.mark_fg),
-            cmdline_bg: parse_color(&tc.cmdline_bg).unwrap_or(bg),
-            cmdline_fg: parse_color(&tc.cmdline_fg).unwrap_or(fg),
+            bg: c(&tc.bg, d.bg),
+            fg: c(&tc.fg, d.fg),
+            cursor_bg: c(&tc.cursor_bg, d.cursor_bg),
+            cursor_fg: c(&tc.cursor_fg, d.cursor_fg),
+            mark_fg: c(&tc.mark_fg, d.mark_fg),
+            cmdline_bg: c(&tc.cmdline_bg, d.cmdline_bg),
+            cmdline_fg: c(&tc.cmdline_fg, d.cmdline_fg),
+            button_sel_bg: c(&tc.button_sel_bg, d.button_sel_bg),
+            button_sel_fg: c(&tc.button_sel_fg, d.button_sel_fg),
         }
     }
 }

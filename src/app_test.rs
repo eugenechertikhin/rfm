@@ -410,7 +410,7 @@ fn dir_entry(name: &str) -> VfsEntry {
 fn ctrl_v_inserts_quoted_name_under_cursor() {
     let mut app = app_with(vec![entry("a b.txt"), entry("c")]);
     app.handle_key(ctrl('v'));
-    assert_eq!(app.cmdline.text(), "'a b.txt'"); // всегда в одинарных кавычках
+    assert_eq!(app.cmdline.text(), "'a b.txt' "); // всегда в одинарных кавычках + пробел
     // вставка идёт в позицию курсора командной строки
     app.cmdline.clear();
     for ch in "vim ".chars() {
@@ -418,7 +418,12 @@ fn ctrl_v_inserts_quoted_name_under_cursor() {
     }
     app.active_panel_mut().cursor = 1;
     app.handle_key(ctrl('v'));
-    assert_eq!(app.cmdline.text(), "vim 'c'");
+    assert_eq!(app.cmdline.text(), "vim 'c' ");
+    // подряд — имена через пробел, курсор за пробелом
+    app.active_panel_mut().cursor = 0;
+    app.handle_key(ctrl('v'));
+    assert_eq!(app.cmdline.text(), "vim 'c' 'a b.txt' ");
+    assert_eq!(app.cmdline.cursor, app.cmdline.chars.len());
 }
 
 #[test]
@@ -427,7 +432,7 @@ fn ctrl_v_on_dotdot_inserts_dotdot() {
     // добавим ".." в начало списка через reload на реальной директории было бы сложно;
     // проверим директорию: имя без слэша.
     app.handle_key(ctrl('v'));
-    assert_eq!(app.cmdline.text(), "'sub'");
+    assert_eq!(app.cmdline.text(), "'sub' ");
 }
 
 #[test]
@@ -754,6 +759,24 @@ fn delete_y_removes_file() {
 }
 
 #[test]
+fn delete_enter_removes_file() {
+    let dir = std::env::temp_dir().join(format!("rfm_del_enter_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("x"), b"data").unwrap();
+    let mut app = app_with(vec![]);
+    app.active_panel_mut().path = crate::vfs::VfsPath::local(dir.clone());
+    app.active_panel_mut().entries = vec![entry("x")];
+    app.active_panel_mut().cursor = 0;
+
+    app.handle_key(ctrl('x'));
+    app.handle_key(key(KeyCode::Char('d')));
+    app.handle_key(key(KeyCode::Enter)); // подтвердить (Enter = Ctrl+Y)
+    assert!(app.dialog.is_none());
+    assert!(!dir.join("x").exists());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn mkdir_opens_input_dialog() {
     let mut app = app_with(vec![]);
     app.handle_key(ctrl('x'));
@@ -787,6 +810,31 @@ fn mkdir_creates_directory_end_to_end() {
     app.handle_key(key(KeyCode::Enter));
 
     assert!(tmp.join("sub").is_dir(), "mkdir should create the directory");
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+fn mkdir_buttons_ctrl_y_creates_ctrl_n_cancels() {
+    let tmp = std::env::temp_dir().join(format!("rfm_mkbtn_{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let mut app = App::new(Config::default());
+    app.panels[0] = Panel::new(VfsPath::local(tmp.clone()));
+    app.active = 0;
+
+    // Ctrl+N — отмена, ничего не создаётся.
+    app.handle_key(ctrl('x'));
+    app.handle_key(key(KeyCode::Char('n')));
+    app.handle_key(key(KeyCode::Char('x')));
+    app.handle_key(ctrl('n'));
+    assert!(app.dialog.is_none());
+    assert!(!tmp.join("x").exists());
+
+    // Ctrl+Y — создать.
+    app.handle_key(ctrl('x'));
+    app.handle_key(key(KeyCode::Char('n')));
+    app.handle_key(key(KeyCode::Char('y')));
+    app.handle_key(ctrl('y'));
+    assert!(tmp.join("y").is_dir());
     std::fs::remove_dir_all(&tmp).ok();
 }
 
@@ -1006,8 +1054,8 @@ fn settings_viewer_hex_toggle() {
     let mut app = app_with(vec![]);
     app.handle_key(ctrl('x'));
     app.handle_key(key(KeyCode::Char('x')));
-    // → hex (секция Viewer): 10 шагов от show_hidden.
-    for _ in 0..10 {
+    // → hex (секция Viewer): 8 шагов от show_hidden.
+    for _ in 0..8 {
         app.handle_key(key(KeyCode::Down));
     }
     let before = app.config.view_hex;
@@ -1244,7 +1292,7 @@ fn settings_edit_view_string() {
     let mut app = app_with(vec![]);
     app.handle_key(ctrl('x'));
     app.handle_key(key(KeyCode::Char('x')));
-    for _ in 0..9 {
+    for _ in 0..7 {
         app.handle_key(key(KeyCode::Down)); // → view (секция Viewer)
     }
     app.handle_key(key(KeyCode::Enter)); // начать редактирование (буфер="internal")
@@ -1264,7 +1312,7 @@ fn settings_save_closes_window() {
     app.handle_key(ctrl('x'));
     app.handle_key(key(KeyCode::Char('x')));
     for _ in 0..13 {
-        app.handle_key(key(KeyCode::Down)); // → [ Save ]
+        app.handle_key(key(KeyCode::Down)); // → строка кнопок (Save выбран)
     }
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.status, "config saved");
@@ -1276,8 +1324,8 @@ fn panel_view_override_cycles() {
     let mut app = app_with(vec![]);
     app.handle_key(ctrl('x'));
     app.handle_key(key(KeyCode::Char('x')));
-    for _ in 0..7 {
-        app.handle_key(key(KeyCode::Down)); // → panel · file_list_view
+    for _ in 0..11 {
+        app.handle_key(key(KeyCode::Down)); // → Panel 1 · file_list_view
     }
     assert_eq!(app.active_panel().view_override, None);
     app.handle_key(key(KeyCode::Right));
@@ -1293,8 +1341,8 @@ fn panel_columns_setting() {
     let mut app = app_with(vec![entry("a"), entry("b")]);
     app.handle_key(ctrl('x'));
     app.handle_key(key(KeyCode::Char('x')));
-    for _ in 0..8 {
-        app.handle_key(key(KeyCode::Down)); // → panel · columns
+    for _ in 0..12 {
+        app.handle_key(key(KeyCode::Down)); // → Panel 1 · columns
     }
     app.handle_key(key(KeyCode::Right)); // columns 1 -> 2
     assert_eq!(app.active_panel().columns, 2);
@@ -1343,8 +1391,12 @@ fn theme_selected_from_config() {
         mark_fg: "green".to_string(),
         cmdline_bg: "black".to_string(),
         cmdline_fg: "white".to_string(),
+        button_sel_bg: "red".to_string(),
+        button_sel_fg: "blue".to_string(),
     }];
     let app = App::new(config);
     assert_eq!(app.theme.bg, ratatui::style::Color::Rgb(16, 16, 16));
     assert_eq!(app.theme.mark_fg, ratatui::style::Color::Green);
+    assert_eq!(app.theme.button_sel_bg, ratatui::style::Color::Red);
+    assert_eq!(app.theme.button_sel_fg, ratatui::style::Color::Blue);
 }

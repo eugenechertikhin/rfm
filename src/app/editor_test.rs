@@ -205,26 +205,84 @@ fn typing_edits_buffer_not_disk() {
     fs::remove_dir_all(&dir).ok();
 }
 
+fn quit_dialog_open(app: &App) -> bool {
+    matches!(app.dialog, Some(Dialog::Confirm { op: PendingOp::QuitEditor, .. }))
+}
+
 #[test]
-fn esc_closes_without_saving() {
+fn esc_unmodified_closes_without_dialog() {
     let (mut app, dir) = app_with_editor("ab\n");
-    app.handle_key(key(KeyCode::Char('X')));
     app.handle_key(key(KeyCode::Esc));
     assert!(app.active_panel().editor.is_none());
-    assert_eq!(file_text(&dir), "ab\n"); // несохранённое отброшено
+    assert!(app.dialog.is_none());
     fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
-fn ctrl_x_q_closes_without_saving() {
+fn esc_modified_asks_then_yes_closes_without_saving() {
+    for yes in [ctrl('y'), key(KeyCode::Enter)] {
+        let (mut app, dir) = app_with_editor("ab\n");
+        app.handle_key(key(KeyCode::Char('X')));
+        app.handle_key(key(KeyCode::Esc));
+        assert!(quit_dialog_open(&app));
+        assert!(app.active_panel().editor.is_some()); // ещё открыт
+        app.handle_key(yes);
+        assert!(app.dialog.is_none());
+        assert!(app.active_panel().editor.is_none());
+        assert_eq!(file_text(&dir), "ab\n"); // несохранённое отброшено
+        fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[test]
+fn quit_dialog_cancel_stays_in_editor_with_edits() {
+    for cancel in [ctrl('n'), key(KeyCode::Esc)] {
+        let (mut app, dir) = app_with_editor("ab\n");
+        app.handle_key(key(KeyCode::Char('X')));
+        app.handle_key(key(KeyCode::Esc));
+        app.handle_key(cancel);
+        assert!(app.dialog.is_none());
+        let ed = app.active_panel().editor.as_ref().expect("editor stays open");
+        assert_eq!(ed.lines, vec!["Xab"]);
+        assert!(ed.dirty);
+        fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[test]
+fn quit_dialog_ignores_other_keys() {
+    let (mut app, dir) = app_with_editor("ab\n");
+    app.handle_key(key(KeyCode::Char('X')));
+    app.handle_key(key(KeyCode::Esc));
+    app.handle_key(key(KeyCode::Char('z')));
+    app.handle_key(ctrl('s')); // sudo — только для delete
+    assert!(quit_dialog_open(&app));
+    assert_eq!(app.active_panel().editor.as_ref().unwrap().lines, vec!["Xab"]);
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn ctrl_x_q_modified_asks_same_dialog() {
     let (mut app, dir) = app_with_editor("ab\n");
     app.handle_key(key(KeyCode::Char('X')));
     app.handle_key(ctrl('x'));
     assert_eq!(app.prefix, Prefix::Root);
     app.handle_key(key(KeyCode::Char('q')));
-    assert!(app.active_panel().editor.is_none());
     assert_eq!(app.prefix, Prefix::None);
-    assert_eq!(file_text(&dir), "ab\n"); // несохранённое отброшено
+    assert!(quit_dialog_open(&app));
+    app.handle_key(ctrl('y'));
+    assert!(app.active_panel().editor.is_none());
+    assert_eq!(file_text(&dir), "ab\n");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn ctrl_x_q_unmodified_closes_without_dialog() {
+    let (mut app, dir) = app_with_editor("ab\n");
+    app.handle_key(ctrl('x'));
+    app.handle_key(key(KeyCode::Char('q')));
+    assert!(app.dialog.is_none());
+    assert!(app.active_panel().editor.is_none());
     fs::remove_dir_all(&dir).ok();
 }
 

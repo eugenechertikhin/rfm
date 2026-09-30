@@ -383,6 +383,7 @@ Panels:
   c-x p c / p x          create / close panel
   c-t                    mark file
   Shift+Up/Down          mark and move
+  + / -                  select / unselect by mask (empty command line)
   c-s                    incremental search in list
   Up / Down              move cursor
   Enter                  open dir / run exec / run command (in tree: expand/collapse)

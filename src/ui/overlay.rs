@@ -46,16 +46,19 @@ pub(super) fn setting_label_value(app: &App, id: SettingId, editing: Option<&cra
             }
             .to_string(),
         ),
-        SettingId::PanelView => (
+        SettingId::PanelView(i) => (
             "file_list_view",
-            match app.active_panel().view_override {
+            match app.panels.get(i).and_then(|p| p.view_override) {
                 None => "global",
                 Some(FileListView::Flat) => "flat",
                 Some(FileListView::Tree) => "tree",
             }
             .to_string(),
         ),
-        SettingId::PanelColumns => ("columns", app.active_panel().columns.to_string()),
+        SettingId::PanelColumns(i) => (
+            "columns",
+            app.panels.get(i).map(|p| p.columns).unwrap_or(1).to_string(),
+        ),
         SettingId::View => (
             "view",
             editing.map(|b| b.text()).unwrap_or_else(|| c.view.clone()),
@@ -66,21 +69,67 @@ pub(super) fn setting_label_value(app: &App, id: SettingId, editing: Option<&cra
             "edit",
             editing.map(|b| b.text()).unwrap_or_else(|| c.edit.clone()),
         ),
-        SettingId::Save => ("", "[ Save ]".to_string()),
     }
 }
 
-/// Рисует экран настроек (`Ctrl+x x`): секции с заголовками (global/panel/viewer/editor).
+/// Раскладка окна настроек: позиция каждой строки `(колонка, y)` относительно
+/// внутренней области и число строк содержимого. Две колонки: слева Global/Viewer/Editor,
+/// справа — секции панелей, строка кнопок — под обеими (через пустую строку). Одна колонка —
+/// все строки подряд.
+pub(super) fn settings_positions(n_rows: usize, two_cols: bool) -> (Vec<(usize, u16)>, u16) {
+    let left = SETTINGS_LEFT.len();
+    let save = n_rows - 1;
+    if !two_cols {
+        return ((0..n_rows).map(|i| (0, i as u16)).collect(), n_rows as u16);
+    }
+    let right = save - left;
+    let body = left.max(right) as u16;
+    let mut pos = Vec::with_capacity(n_rows);
+    pos.extend((0..left).map(|i| (0, i as u16)));
+    pos.extend((0..right).map(|j| (1, j as u16)));
+    pos.push((0, body + 1));
+    (pos, body + 2)
+}
+
+/// Хвост строки, влезающий в `width` (для путей: важнее конец), с `…` в начале.
+fn tail_width(s: &str, width: usize) -> String {
+    if UnicodeWidthStr::width(s) <= width {
+        return s.to_string();
+    }
+    let mut out: Vec<char> = Vec::new();
+    let mut w = 1; // «…»
+    for c in s.chars().rev() {
+        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+        if w + cw > width {
+            break;
+        }
+        w += cw;
+        out.push(c);
+    }
+    out.reverse();
+    format!("…{}", out.into_iter().collect::<String>())
+}
+
+/// Рисует экран настроек (`Ctrl+x x`): слева Global/Viewer/Editor, справа — по секции
+/// на каждую панель; на узком экране — одна колонка.
 pub(super) fn render_settings(f: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    const COL_MIN: u16 = 34;
+    const COL_MAX: u16 = 44;
     let st = app.settings.as_ref();
     let sel = st.map(|s| s.sel).unwrap_or(SETTINGS_FIRST);
     let editing = st.and_then(|s| s.editing.as_ref());
+    let rows = app.settings_rows();
 
-    let hint = "↑/↓ select · ←/→/Enter change · q/Esc close";
-    let label_w = 22usize;
-    let indent = 2usize; // отступ полей от края (заголовки — без отступа)
-    let width = 52u16.min(area.width.saturating_sub(2));
-    let height = (SETTINGS_ROWS.len() as u16 + 3).min(area.height); // строки + hint + рамка
+    let hint = "↑/↓ select · Tab section · ←/→/Enter change";
+    let label_w = 20usize;
+    let indent = 2usize; // отступ полей от края колонки (заголовки — без отступа)
+    // Две колонки, если каждая получает хотя бы COL_MIN (рамка 2 + зазор 1).
+    let half = area.width.saturating_sub(3) / 2;
+    let two_cols = half >= COL_MIN;
+    let col_w = if two_cols { half.min(COL_MAX) } else { 52u16.min(area.width.saturating_sub(2)) };
+    let width = if two_cols { col_w * 2 + 3 } else { col_w + 2 };
+    let (pos, body_h) = settings_positions(rows.len(), two_cols);
+    let height = (body_h + 3).min(area.height); // содержимое + hint + рамка
     let rect = centered_rect(area, width, height);
 
     let block = Block::default()
@@ -91,51 +140,65 @@ pub(super) fn render_settings(f: &mut Frame, area: Rect, app: &App, theme: &Them
     f.render_widget(Clear, rect);
     f.render_widget(block, rect);
 
-    let iw = inner.width as usize;
-    for (i, row) in SETTINGS_ROWS.iter().enumerate() {
-        let rect_i = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
-        match row {
-            SettingRow::Header(title) => {
-                let text = format!("── {title} ──");
-                let padded = format!("{:<width$}", truncate_width(&text, iw), width = iw);
-                f.render_widget(
-                    Paragraph::new(padded)
-                        .style(Style::default().bg(theme.bg).fg(Color::DarkGray).add_modifier(Modifier::BOLD)),
-                    rect_i,
-                );
+    let header_style = Style::default().bg(theme.bg).fg(Color::DarkGray).add_modifier(Modifier::BOLD);
+    let mut caret: Option<Position> = None;
+    for (i, row) in rows.iter().enumerate() {
+        let (col, y) = pos[i];
+        if y >= inner.height.saturating_sub(1) {
+            continue; // не влезает (последняя строка — hint)
+        }
+        let x = inner.x + col as u16 * (col_w + 1);
+        // Строка кнопок — по центру на всю ширину окна.
+        if let SettingRow::Buttons = row {
+            let focus = (i == sel).then(|| st.map(|s| s.button).unwrap_or(0));
+            render_button_row(f, Rect::new(inner.x, inner.y + y, inner.width, 1), &SETTINGS_BUTTONS, focus, theme);
+            continue;
+        }
+        let rect_i = Rect::new(x, inner.y + y, col_w.min(inner.x + inner.width - x), 1);
+        let w = rect_i.width as usize;
+        let (text, style) = match row {
+            SettingRow::Header(title) => (format!("── {title} ──"), header_style),
+            SettingRow::PanelHeader(p) => {
+                let active = if *p == app.active { " (active)" } else { "" };
+                (format!("── Panel {}{active} ──", p + 1), header_style)
             }
+            SettingRow::PanelDir(p) => {
+                let dir = app.panels.get(*p).map(|p| p.path.display()).unwrap_or_default();
+                (
+                    format!("{}{}", " ".repeat(indent), tail_width(&dir, w.saturating_sub(indent))),
+                    Style::default().bg(theme.bg).fg(Color::DarkGray),
+                )
+            }
+            SettingRow::Buttons => continue, // нарисована выше
             SettingRow::Field(id) => {
                 let ed = if i == sel { editing } else { None };
                 let (label, value) = setting_label_value(app, *id, ed);
-                let text = if label.is_empty() {
-                    format!("{}{value}", " ".repeat(indent))
-                } else {
-                    format!("{}{label:<label_w$}{value}", " ".repeat(indent))
-                };
+                let text = format!("{}{label:<label_w$}{value}", " ".repeat(indent));
                 let style = if i == sel {
                     Style::default().bg(theme.cursor_bg).fg(theme.cursor_fg)
                 } else {
                     Style::default().bg(theme.bg).fg(theme.fg)
                 };
-                let padded = format!("{:<width$}", truncate_width(&text, iw), width = iw);
-                f.render_widget(Paragraph::new(padded).style(style), rect_i);
+                if let (true, Some(buf)) = (i == sel, ed) {
+                    let cx = x + (indent + label_w) as u16 + UnicodeWidthStr::width(buf.text().as_str()) as u16;
+                    caret = Some(Position::new(cx.min(x + col_w.saturating_sub(1)), inner.y + y));
+                }
+                (text, style)
             }
-        }
+        };
+        let padded = format!("{:<width$}", truncate_width(&text, w), width = w);
+        f.render_widget(Paragraph::new(padded).style(style), rect_i);
     }
-    let hy = inner.y + SETTINGS_ROWS.len() as u16;
+    let hy = inner.y + inner.height.saturating_sub(1);
     f.render_widget(
-        Paragraph::new(truncate_width(hint, iw)).style(Style::default().bg(theme.bg).fg(Color::DarkGray)),
+        Paragraph::new(truncate_width(hint, inner.width as usize))
+            .style(Style::default().bg(theme.bg).fg(Color::DarkGray)),
         Rect::new(inner.x, hy, inner.width, 1),
     );
 
     // Каретка при редактировании строкового значения (view/edit).
-    if let Some(buf) = editing {
-        let row_y = inner.y + sel as u16;
-        let x = inner.x + (indent + label_w) as u16 + UnicodeWidthStr::width(buf.text().as_str()) as u16;
-        f.set_cursor_position(Position::new(
-            x.min(inner.x + inner.width.saturating_sub(1)),
-            row_y,
-        ));
+    if let Some(p) = caret {
+        f.set_cursor_position(p);
     }
 }
 
@@ -202,8 +265,12 @@ fn button_row_width(buttons: &[&str]) -> usize {
         + BTN_GAP.len() * buttons.len().saturating_sub(1)
 }
 
+/// Кнопки окна настроек.
+const SETTINGS_BUTTONS: [&str; 2] = ["[ Save (c-s) ]", "[ Cancel (c-n) ]"];
+
 /// Рисует ряд кнопок по центру `area`; каждая подсвечена цветом курсора.
-fn render_button_row(f: &mut Frame, area: Rect, buttons: &[&str], theme: &Theme) {
+/// `focus` — кнопка в фокусе: цвета `button_sel_bg`/`button_sel_fg` темы.
+fn render_button_row(f: &mut Frame, area: Rect, buttons: &[&str], focus: Option<usize>, theme: &Theme) {
     let base = Style::default().bg(theme.bg).fg(theme.fg);
     let hl = Style::default().bg(theme.cursor_bg).fg(theme.cursor_fg);
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -211,16 +278,21 @@ fn render_button_row(f: &mut Frame, area: Rect, buttons: &[&str], theme: &Theme)
         if i > 0 {
             spans.push(Span::styled(BTN_GAP, base));
         }
-        spans.push(Span::styled((*b).to_string(), hl));
+        let sel = Style::default().bg(theme.button_sel_bg).fg(theme.button_sel_fg);
+        let style = if focus == Some(i) { sel } else { hl };
+        spans.push(Span::styled((*b).to_string(), style));
     }
     f.render_widget(Paragraph::new(Line::from(spans)).alignment(Alignment::Center), area);
 }
 
 /// Рисует модальный диалог (подтверждение или ввод) по центру экрана.
-pub(super) fn render_dialog(f: &mut Frame, area: Rect, dialog: &Dialog, theme: &Theme) {
-    // Подтверждение удаления — с кнопками Delete/Sudo/Cancel.
+/// `focus` — индекс кнопки в фокусе (`App.dialog_btn`).
+pub(super) fn render_dialog(f: &mut Frame, area: Rect, dialog: &Dialog, focus: usize, theme: &Theme) {
+    let labels: Vec<&str> = crate::app::dialog_buttons(dialog).iter().map(|(l, _)| *l).collect();
+    let focus = Some(focus.min(labels.len().saturating_sub(1)));
+    // Подтверждение (удаление / выход из редактора без сохранения) — с кнопками.
     if let Dialog::Confirm { message, .. } = dialog {
-        render_confirm(f, area, message, theme);
+        render_confirm(f, area, message, &labels, focus, theme);
         return;
     }
     let Dialog::Input { prompt, input, op } = dialog else {
@@ -232,18 +304,16 @@ pub(super) fn render_dialog(f: &mut Frame, area: Rect, dialog: &Dialog, theme: &
     } else {
         input.text()
     };
-    // Кнопки только для copy/move (действия на Ctrl+Y/S/C).
-    let buttons: Option<[&str; 3]> = match op {
-        crate::app::PendingOp::Copy(_) => Some([" Copy (c-y) ", " Sudo (c-s) ", " Cancel (c-n) "]),
-        crate::app::PendingOp::Move(_) => Some([" Move (c-y) ", " Sudo (c-s) ", " Cancel (c-n) "]),
-        _ => None,
-    };
+    // Кнопки для copy/move/select/create (действия на Ctrl+Y/S/N).
+    let buttons: Option<&[&str]> = (!labels.is_empty()).then_some(labels.as_slice());
 
-    let btn_w = buttons.map(|b| button_row_width(&b)).unwrap_or(0);
+    let file_op = is_file_op(op);
+    let title = input_dialog_title(prompt, file_op);
+    let btn_w = buttons.map(button_row_width).unwrap_or(0);
     let content_w = UnicodeWidthStr::width(body.as_str())
-        .max(UnicodeWidthStr::width(prompt.as_str()))
+        .max(UnicodeWidthStr::width(title.as_str()))
         .max(btn_w);
-    let width = (content_w as u16 + 4).clamp(20, area.width.saturating_sub(2).max(20));
+    let width = input_dialog_width(content_w, width_pct(op), area.width);
     // Рамка + строка ввода (+ пустая строка + кнопки, если есть).
     let height = if buttons.is_some() { 5 } else { 3 };
     let rect = centered_rect(area, width, height);
@@ -251,7 +321,7 @@ pub(super) fn render_dialog(f: &mut Frame, area: Rect, dialog: &Dialog, theme: &
     let base = Style::default().bg(theme.bg).fg(theme.fg);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(prompt.clone())
+        .title(title)
         .style(base);
     let inner = block.inner(rect);
     f.render_widget(Clear, rect);
@@ -262,9 +332,9 @@ pub(super) fn render_dialog(f: &mut Frame, area: Rect, dialog: &Dialog, theme: &
         Paragraph::new(body.clone()).style(base),
         Rect::new(inner.x, inner.y, inner.width, 1),
     );
-    // Ряд кнопок (для copy/move) — с пустой строкой-отступом над ними.
+    // Ряд кнопок (для copy/move/select/create) — с пустой строкой-отступом над ними.
     if let Some(b) = buttons {
-        render_button_row(f, Rect::new(inner.x, inner.y + 2, inner.width, 1), &b, theme);
+        render_button_row(f, Rect::new(inner.x, inner.y + 2, inner.width, 1), b, focus, theme);
     }
 
     // Каретка в поле ввода.
@@ -281,25 +351,58 @@ pub(super) fn render_dialog(f: &mut Frame, area: Rect, dialog: &Dialog, theme: &
     ));
 }
 
+/// Файловые операции create/copy/move и select/unselect: заголовок `[ … ]` как у активной панели и диалог шире.
+fn is_file_op(op: &crate::app::PendingOp) -> bool {
+    use crate::app::PendingOp::*;
+    matches!(op, MkDir(_) | Copy(_) | Move(_) | Select(_))
+}
+
+/// Заголовок диалога ввода: для файловых операций — в скобках, как у активной панели.
+pub(super) fn input_dialog_title(prompt: &str, file_op: bool) -> String {
+    if file_op {
+        format!("[ {prompt} ]")
+    } else {
+        prompt.to_string()
+    }
+}
+
+/// Ширина содержимого диалога ввода в процентах: create — +50%,
+/// copy/move/select — +15%, прочие — как есть.
+fn width_pct(op: &crate::app::PendingOp) -> usize {
+    match op {
+        crate::app::PendingOp::MkDir(_) => 150,
+        op if is_file_op(op) => 115,
+        _ => 100,
+    }
+}
+
+/// Ширина диалога ввода: содержимое × `pct`% + 4 на рамку и поля.
+/// Не меньше 20, не шире экрана.
+pub(super) fn input_dialog_width(content_w: usize, pct: usize, screen_w: u16) -> u16 {
+    let w = content_w * pct / 100;
+    (w.min(u16::MAX as usize) as u16)
+        .saturating_add(4)
+        .clamp(20, screen_w.saturating_sub(2).max(20))
+}
+
 /// Диалог ввода со скрытием значения (пароль).
 fn is_secret(op: &crate::app::PendingOp) -> bool {
     matches!(op, crate::app::PendingOp::FtpConnect(_))
 }
 
-/// Рисует диалог подтверждения удаления: сообщение + строка кнопок
-/// `Delete (Y)` / `Sudo (S)` / `Cancel (N)` (подсвечены как курсор).
-fn render_confirm(f: &mut Frame, area: Rect, message: &str, theme: &Theme) {
-    const BUTTONS: [&str; 3] = [" Delete (c-y) ", " Sudo (c-s) ", " Cancel (c-n) "];
+/// Рисует диалог подтверждения: сообщение + строка кнопок (подсвечены как курсор,
+/// кнопка в фокусе — `button_sel_bg`).
+fn render_confirm(f: &mut Frame, area: Rect, message: &str, buttons: &[&str], focus: Option<usize>, theme: &Theme) {
     let inner_w = UnicodeWidthStr::width(message)
-        .max(button_row_width(&BUTTONS))
-        .max(UnicodeWidthStr::width("Confirm"));
+        .max(button_row_width(buttons))
+        .max(UnicodeWidthStr::width("[ Confirm ]"));
     let width = (inner_w as u16 + 4).clamp(20, area.width.saturating_sub(2).max(20));
     let rect = centered_rect(area, width, 5); // рамка + сообщение + пустая строка + кнопки
 
     let base = Style::default().bg(theme.bg).fg(theme.fg);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("Confirm")
+        .title("[ Confirm ]")
         .style(base);
     let inner = block.inner(rect);
     f.render_widget(Clear, rect);
@@ -312,5 +415,5 @@ fn render_confirm(f: &mut Frame, area: Rect, message: &str, theme: &Theme) {
         Rect::new(inner.x, inner.y, inner.width, 1),
     );
     // Строка кнопок (с пустой строкой-отступом над ними).
-    render_button_row(f, Rect::new(inner.x, inner.y + 2, inner.width, 1), &BUTTONS, theme);
+    render_button_row(f, Rect::new(inner.x, inner.y + 2, inner.width, 1), buttons, focus, theme);
 }

@@ -10,7 +10,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{
-    App, Completion, Dialog, Panel, SettingId, SettingRow, Viewer, SETTINGS_FIRST, SETTINGS_ROWS,
+    App, Completion, Dialog, Panel, SettingId, SettingRow, Viewer, SETTINGS_FIRST, SETTINGS_LEFT,
 };
 use crate::config::{FileListView, PanelLayout, PauseMode, SaveMode};
 use crate::theme::Theme;
@@ -72,14 +72,14 @@ pub fn render(f: &mut Frame, app: &mut App) {
         }
     }
 
-    // ---- Часы в правом верхнем углу на рамке (hh:mm), с отступом 1 символ от края ----
+    // ---- Часы в правом верхнем углу на рамке `[ hh:mm ]`, 1 символ линии до угла ----
     if app.config.show_clock {
-        let hm = crate::clock::hh_mm();
+        let hm = format!("[ {} ]", crate::clock::hh_mm());
         let w = UnicodeWidthStr::width(hm.as_str()) as u16;
-        if w > 0 && chunks[0].width > w + 2 {
+        if w > 0 && chunks[0].width > w + 3 {
             // Рамка нарисована стилем заголовка активной панели (жирным fg).
             let clock_style = Style::default().bg(theme.bg).fg(theme.fg).add_modifier(Modifier::BOLD);
-            let x = chunks[0].x + chunks[0].width - 1 - w; // 1 символ от правого края
+            let x = chunks[0].x + chunks[0].width - 2 - w; // угол + 1 символ линии
             f.render_widget(
                 Paragraph::new(hm).style(clock_style),
                 Rect::new(x, chunks[0].y, w, 1),
@@ -142,7 +142,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
                 results,
                 sel,
             } => render_history_search(f, area, input, results, *sel, &theme),
-            _ => render_dialog(f, area, dialog, &theme),
+            _ => render_dialog(f, area, dialog, app.dialog_btn, &theme),
         }
         return;
     }

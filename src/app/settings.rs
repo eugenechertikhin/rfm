@@ -17,25 +17,37 @@ impl App {
             return self.handle_settings_edit_key(key);
         }
         let sel = self.settings.as_ref().map(|s| s.sel).unwrap_or(0);
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let rows = self.settings_rows();
+        let on_buttons = rows.get(sel) == Some(&SettingRow::Buttons);
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => {
-                // `q` работает как Esc (закрыть окно настроек).
-                // При on-change сохраняем накопленные изменения.
-                let dirty = self.settings.as_ref().map(|s| s.dirty).unwrap_or(false);
-                self.settings = None;
-                if dirty && self.config.config_save == SaveMode::OnChange {
-                    self.save_config();
-                }
-            }
+            // Save (c-s) — сохранить и закрыть; Cancel (c-n) / Esc / q — откатить сеанс и закрыть.
+            KeyCode::Char('s') if ctrl => self.settings_save(),
+            KeyCode::Char('n') if ctrl => self.settings_cancel(),
+            KeyCode::Esc | KeyCode::Char('q') if !ctrl => self.settings_cancel(),
             KeyCode::Up => self.settings_move(-1),
             KeyCode::Down => self.settings_move(1),
+            KeyCode::Tab => self.settings_section(1),
+            KeyCode::BackTab => self.settings_section(-1),
+            // На строке кнопок: ←/→ — выбор кнопки, Enter/Space — нажать.
+            KeyCode::Left | KeyCode::Right if on_buttons => {
+                if let Some(s) = self.settings.as_mut() {
+                    s.button = 1 - s.button.min(1);
+                }
+            }
+            KeyCode::Enter | KeyCode::Char(' ') if on_buttons => {
+                match self.settings.as_ref().map(|s| s.button).unwrap_or(0) {
+                    0 => self.settings_save(),
+                    _ => self.settings_cancel(),
+                }
+            }
             KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Right => {
-                if let Some(id) = setting_at(sel) {
+                if let Some(id) = setting_at(&rows, sel) {
                     self.settings_change(id, 1);
                 }
             }
             KeyCode::Left => {
-                if let Some(id) = setting_at(sel) {
+                if let Some(id) = setting_at(&rows, sel) {
                     self.settings_change(id, -1);
                 }
             }
@@ -44,21 +56,74 @@ impl App {
         Action::Redraw
     }
 
+    /// `[ Save ]`: записать конфиг и закрыть окно.
+    pub(super) fn settings_save(&mut self) {
+        self.save_config();
+        self.settings = None;
+    }
+
+    /// `[ Cancel ]` / `Esc`: откатить всё, что изменено за сеанс окна, и закрыть его.
+    /// Если за сеанс конфиг уже писался на диск (`config_save = always`), записываем
+    /// восстановленный.
+    pub(super) fn settings_cancel(&mut self) {
+        let Some(s) = self.settings.take() else { return };
+        if !s.dirty && !s.saved && self.panel_settings() == s.orig_panels {
+            return; // ничего не менялось
+        }
+        self.config = s.orig_config;
+        self.theme = resolve_theme(&self.config);
+        if self.panel_settings() != s.orig_panels {
+            for (p, (view, cols)) in self.panels.iter_mut().zip(s.orig_panels) {
+                if p.columns != cols {
+                    p.grid_left = 0;
+                }
+                p.view_override = view;
+                p.columns = cols;
+            }
+            self.panels_dirty = true;
+        }
+        self.reload_all();
+        if s.saved {
+            self.save_config();
+        }
+    }
+
+    /// Настройки панелей, меняемые в окне: (override вида, число колонок).
+    pub(super) fn panel_settings(&self) -> Vec<(Option<FileListView>, usize)> {
+        self.panels.iter().map(|p| (p.view_override, p.columns)).collect()
+    }
+
+    /// Строки окна настроек для текущего набора панелей.
+    pub fn settings_rows(&self) -> Vec<SettingRow> {
+        settings_rows(self.panels.len())
+    }
+
     pub(super) fn settings_move(&mut self, dir: isize) {
+        let rows = self.settings_rows();
         if let Some(s) = self.settings.as_mut() {
-            let n = SETTINGS_ROWS.len() as isize;
+            let n = rows.len() as isize;
             let mut i = s.sel as isize;
             loop {
                 i += dir;
                 if i < 0 || i >= n {
                     return;
                 }
-                if matches!(SETTINGS_ROWS[i as usize], SettingRow::Field(_)) {
+                if matches!(rows[i as usize], SettingRow::Field(_) | SettingRow::Buttons) {
                     s.sel = i as usize;
                     return;
                 }
             }
         }
+    }
+
+    /// `Tab` / `Shift+Tab` — на первое поле следующего / предыдущего раздела
+    /// (Global → Viewer → Editor → Panel 1 → … → кнопки), по кругу.
+    pub(super) fn settings_section(&mut self, dir: isize) {
+        let starts = section_starts(&self.settings_rows());
+        let Some(s) = self.settings.as_mut() else { return };
+        let cur = starts.iter().rposition(|&i| i <= s.sel).unwrap_or(0) as isize;
+        let next = (cur + dir).rem_euclid(starts.len() as isize) as usize;
+        s.sel = starts[next];
     }
 
     pub(super) fn handle_settings_edit_key(&mut self, key: KeyEvent) -> Action {
@@ -68,7 +133,7 @@ impl App {
                 if let Some(s) = self.settings.as_mut() {
                     if let Some(buf) = s.editing.take() {
                         let val = buf.text();
-                        match setting_at(sel) {
+                        match setting_at(&settings_rows(self.panels.len()), sel) {
                             Some(SettingId::View) => self.config.view = val,
                             Some(SettingId::Edit) => self.config.edit = val,
                             _ => {}
@@ -179,28 +244,26 @@ impl App {
                 self.config.view_wrap = !self.config.view_wrap;
                 self.mark_settings_dirty();
             }
-            // Настройки текущей панели (не в конфиге — сессионные, dirty не ставим).
-            SettingId::PanelView => {
-                let next = match self.active_panel().view_override {
+            // Настройки панели `i` (не в конфиге — в файле состояния панелей, dirty не ставим).
+            SettingId::PanelView(i) => {
+                let Some(p) = self.panels.get_mut(i) else { return };
+                p.view_override = match p.view_override {
                     None => Some(FileListView::Flat),
                     Some(FileListView::Flat) => Some(FileListView::Tree),
                     Some(FileListView::Tree) => None,
                 };
-                self.active_panel_mut().view_override = next;
-                self.reload();
+                let show_hidden = self.config.show_hidden;
+                let view = self.effective_view(i);
+                if let Err(e) = self.panels[i].reload(show_hidden, view) {
+                    self.status = format!("cannot read directory: {e}");
+                }
                 self.panels_dirty = true;
             }
-            SettingId::PanelColumns => {
-                let cur = self.active_panel().columns as i32;
-                let next = (cur + dir).clamp(1, MAX_COLUMNS as i32) as usize;
-                let p = self.active_panel_mut();
-                p.columns = next;
+            SettingId::PanelColumns(i) => {
+                let Some(p) = self.panels.get_mut(i) else { return };
+                p.columns = (p.columns as i32 + dir).clamp(1, MAX_COLUMNS as i32) as usize;
                 p.grid_left = 0;
                 self.panels_dirty = true;
-            }
-            SettingId::Save => {
-                self.save_config();
-                self.settings = None; // Save закрывает окно
             }
         }
     }
@@ -225,6 +288,7 @@ impl App {
             self.status = "config saved".to_string();
             if let Some(s) = self.settings.as_mut() {
                 s.dirty = false;
+                s.saved = true;
             }
             return;
         }
@@ -233,6 +297,7 @@ impl App {
                 self.status = "config saved".to_string();
                 if let Some(s) = self.settings.as_mut() {
                     s.dirty = false;
+                    s.saved = true;
                 }
             }
             Err(e) => self.status = format!("save config: {e}"),
@@ -254,10 +319,17 @@ impl App {
 /// Состояние экрана настроек (`Ctrl+x x`).
 pub struct SettingsState {
     pub sel: usize,
-    /// Были ли изменения (для режима сохранения `on-change`).
+    /// Были ли несохранённые изменения конфига за сеанс окна.
     pub dirty: bool,
+    /// Писался ли конфиг на диск за сеанс окна (для отката по Cancel).
+    pub saved: bool,
     /// Редактирование строкового значения (view/edit): буфер ввода.
     pub editing: Option<CmdLine>,
+    /// Выбранная кнопка на строке кнопок: 0 — Save, 1 — Cancel.
+    pub button: usize,
+    /// Снимок конфига и настроек панелей на момент открытия — для отката по Cancel/Esc.
+    pub orig_config: Config,
+    pub orig_panels: Vec<(Option<FileListView>, usize)>,
 }
 
 /// Настраиваемый параметр в окне настроек.
@@ -271,27 +343,33 @@ pub enum SettingId {
     Theme,
     PauseAfterCommand,
     ConfigSave,
-    // Current panel
-    PanelView,
-    PanelColumns,
+    // Panel N (индекс панели)
+    PanelView(usize),
+    PanelColumns(usize),
     // Viewer
     View,
     ViewHex,
     ViewWrap,
     // Editor
     Edit,
-    // Action
-    Save,
 }
 
-/// Строка экрана настроек: заголовок секции (не выбирается) либо поле.
+/// Строка экрана настроек: заголовок секции (не выбирается), заголовок/путь панели
+/// (не выбираются) либо поле.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingRow {
     Header(&'static str),
+    /// `── Panel N ──` (для активной — с пометкой `(active)`).
+    PanelHeader(usize),
+    /// Путь панели — информационная строка.
+    PanelDir(usize),
     Field(SettingId),
+    /// Строка кнопок `[ Save (c-s) ]  [ Cancel (c-n) ]` (последняя).
+    Buttons,
 }
 
-/// Полный порядок строк окна настроек (с заголовками секций).
-pub const SETTINGS_ROWS: &[SettingRow] = &[
+/// Левая колонка окна настроек: Global, Viewer, Editor.
+pub const SETTINGS_LEFT: &[SettingRow] = &[
     SettingRow::Header("Global"),
     SettingRow::Field(SettingId::ShowHidden),
     SettingRow::Field(SettingId::ShowClock),
@@ -300,28 +378,61 @@ pub const SETTINGS_ROWS: &[SettingRow] = &[
     SettingRow::Field(SettingId::Theme),
     SettingRow::Field(SettingId::PauseAfterCommand),
     SettingRow::Field(SettingId::ConfigSave),
-    SettingRow::Header("Current panel"),
-    SettingRow::Field(SettingId::PanelView),
-    SettingRow::Field(SettingId::PanelColumns),
     SettingRow::Header("Viewer"),
     SettingRow::Field(SettingId::View),
     SettingRow::Field(SettingId::ViewHex),
     SettingRow::Field(SettingId::ViewWrap),
     SettingRow::Header("Editor"),
     SettingRow::Field(SettingId::Edit),
-    SettingRow::Field(SettingId::Save),
 ];
+
+/// Полный порядок строк окна настроек: левая колонка, затем секции панелей
+/// (правая колонка), последней — строка кнопок. Порядок = порядок `↑`/`↓`.
+pub fn settings_rows(n_panels: usize) -> Vec<SettingRow> {
+    let mut rows = SETTINGS_LEFT.to_vec();
+    for i in 0..n_panels {
+        rows.push(SettingRow::PanelHeader(i));
+        rows.push(SettingRow::PanelDir(i));
+        rows.push(SettingRow::Field(SettingId::PanelView(i)));
+        rows.push(SettingRow::Field(SettingId::PanelColumns(i)));
+    }
+    rows.push(SettingRow::Buttons);
+    rows
+}
+
+/// Точки входа разделов для `Tab`: первое поле после каждого заголовка
+/// (`── Global ──`, …, `── Panel N ──`) и строка кнопок.
+pub(super) fn section_starts(rows: &[SettingRow]) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut want = false;
+    for (i, r) in rows.iter().enumerate() {
+        match r {
+            SettingRow::Header(_) | SettingRow::PanelHeader(_) => want = true,
+            SettingRow::Field(_) if want => {
+                out.push(i);
+                want = false;
+            }
+            SettingRow::Buttons => out.push(i),
+            _ => {}
+        }
+    }
+    out
+}
 
 /// Индекс первого выбираемого поля (строка 0 — заголовок «Global»).
 pub const SETTINGS_FIRST: usize = 1;
 
 /// Поле в строке `sel`, если это не заголовок.
-pub(super) fn setting_at(sel: usize) -> Option<SettingId> {
-    match SETTINGS_ROWS.get(sel)? {
+pub(super) fn setting_at(rows: &[SettingRow], sel: usize) -> Option<SettingId> {
+    match rows.get(sel)? {
         SettingRow::Field(id) => Some(*id),
-        SettingRow::Header(_) => None,
+        _ => None,
     }
 }
 
 /// Максимум колонок в панели.
 pub(super) const MAX_COLUMNS: usize = 6;
+
+#[cfg(test)]
+#[path = "settings_test.rs"]
+mod tests;

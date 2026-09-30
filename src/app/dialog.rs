@@ -2,15 +2,77 @@
 
 use super::*;
 
+/// Действие кнопки диалога (то же, что её Ctrl-шорткат).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BtnAct {
+    /// `c-y`: выполнить (Copy/Move/OK/Delete/Yes).
+    Ok,
+    /// `c-s`: через sudo.
+    Sudo,
+    /// `c-n`: отмена.
+    Cancel,
+}
+
+impl BtnAct {
+    fn key(self) -> KeyEvent {
+        let c = match self {
+            BtnAct::Ok => 'y',
+            BtnAct::Sudo => 's',
+            BtnAct::Cancel => 'n',
+        };
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+}
+
+/// Кнопки диалога: подпись и действие. Пусто — диалог без кнопок.
+pub fn dialog_buttons(d: &Dialog) -> &'static [(&'static str, BtnAct)] {
+    use BtnAct::*;
+    match d {
+        Dialog::Confirm { op: PendingOp::QuitEditor, .. } => &[("[ Yes (c-y) ]", Ok), ("[ Cancel (c-n) ]", Cancel)],
+        Dialog::Confirm { .. } => &[("[ Delete (c-y) ]", Ok), ("[ Sudo (c-s) ]", Sudo), ("[ Cancel (c-n) ]", Cancel)],
+        Dialog::Input { op: PendingOp::Copy(_), .. } => &[("[ Copy (c-y) ]", Ok), ("[ Sudo (c-s) ]", Sudo), ("[ Cancel (c-n) ]", Cancel)],
+        Dialog::Input { op: PendingOp::Move(_), .. } => &[("[ Move (c-y) ]", Ok), ("[ Sudo (c-s) ]", Sudo), ("[ Cancel (c-n) ]", Cancel)],
+        Dialog::Input { op: PendingOp::Select(_) | PendingOp::MkDir(_), .. } => &[("[ OK (c-y) ]", Ok), ("[ Cancel (c-n) ]", Cancel)],
+        _ => &[],
+    }
+}
+
 impl App {
+    /// Клавиши диалога. `Tab` — фокус на следующую кнопку (по кругу), `Enter` —
+    /// нажать кнопку в фокусе (= её Ctrl-шорткат). При открытом автодополнении
+    /// `Tab`/`Enter` — его.
     pub(super) fn handle_dialog_key(&mut self, key: KeyEvent) -> Action {
+        let buttons = self.dialog.as_ref().map(dialog_buttons).unwrap_or(&[]);
+        let mut key = key;
+        if !buttons.is_empty() && self.completion.is_none() {
+            match key.code {
+                KeyCode::Tab if key.modifiers.is_empty() => {
+                    self.dialog_btn = (self.dialog_btn + 1) % buttons.len();
+                    return Action::Redraw;
+                }
+                KeyCode::Enter => key = buttons[self.dialog_btn.min(buttons.len() - 1)].1.key(),
+                _ => {}
+            }
+        }
+        let action = self.dialog_key(key);
+        if self.dialog.is_none() {
+            self.dialog_btn = 0; // следующий диалог — с фокусом на первой кнопке
+        }
+        action
+    }
+
+    fn dialog_key(&mut self, key: KeyEvent) -> Action {
         let dialog = self.dialog.take().expect("dialog present");
         match dialog {
             Dialog::Confirm { message, op } => {
                 let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                 match key.code {
-                    // Ctrl+Y — удалить, Ctrl+S — sudo rm, Ctrl+N/Esc — отмена.
+                    // Ctrl+Y/Enter — удалить, Ctrl+S — sudo rm, Ctrl+N/Esc — отмена.
                     KeyCode::Char('y') if ctrl => {
+                        self.execute_op(op, None);
+                        Action::Redraw
+                    }
+                    KeyCode::Enter => {
                         self.execute_op(op, None);
                         Action::Redraw
                     }
@@ -268,6 +330,15 @@ impl App {
                 self.open_ftp(target, password);
                 return;
             }
+            PendingOp::Select(select) => {
+                let mask = arg.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+                self.apply_mask(&mask, select);
+                return;
+            }
+            PendingOp::QuitEditor => {
+                self.close_editor();
+                return;
+            }
         }
 
         self.report_op(verb, done, &errors);
@@ -434,3 +505,7 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "dialog_test.rs"]
+mod tests;

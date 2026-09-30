@@ -76,7 +76,12 @@ pub(super) fn file_info_line(e: &VfsEntry, width: usize) -> String {
     let right_w = UnicodeWidthStr::width(right.as_str());
     // Имя занимает остаток слева (минимум 1), метаданные прижаты вправо.
     let name_area = width.saturating_sub(right_w + 2).max(1);
-    let name = truncate_width(&e.name, name_area);
+    // Симлинк с известной целью — `имя -> цель`.
+    let label = match (&e.kind, &e.symlink_target) {
+        (EntryKind::Symlink, Some(t)) => format!("{} -> {t}", e.name),
+        _ => e.name.clone(),
+    };
+    let name = truncate_width(&label, name_area);
     let name_w = UnicodeWidthStr::width(name.as_str());
     let pad = width.saturating_sub(name_w + right_w).max(1);
     format!("{name}{}{right}", " ".repeat(pad))
@@ -127,6 +132,18 @@ pub(super) fn render_panel_footer(
         // Тройники на левой/правой стойках рамки.
         f.render_widget(Paragraph::new("├").style(bs), Rect::new(sep.x - 1, sep.y, 1, 1));
         f.render_widget(Paragraph::new("┤").style(bs), Rect::new(sep.x + sep.width, sep.y, 1, 1));
+        // Сводка пометок — на разделителе, слева с отступом в 1 символ.
+        if let Some(summary) = marked_title(panel) {
+            let avail = sep.width.saturating_sub(1);
+            if avail > 0 {
+                let text = truncate_width(&summary, avail as usize);
+                let w = UnicodeWidthStr::width(text.as_str()) as u16;
+                f.render_widget(
+                    Paragraph::new(text).style(Style::default().bg(theme.bg).fg(theme.mark_fg)),
+                    Rect::new(sep.x + 1, sep.y, w, 1),
+                );
+            }
+        }
     }
     // Инфо-строка — фоном/цветом панели.
     let w = info.width as usize;
@@ -144,7 +161,8 @@ pub(super) fn render_panel_footer(
 }
 
 /// Общий блок панели: рамка + заголовок; возвращает внутреннюю область.
-pub(super) fn panel_block(area: Rect, path: &str, theme: &Theme, active: bool) -> (Block<'static>, Rect) {
+pub(super) fn panel_block(area: Rect, panel: &Panel, theme: &Theme, active: bool) -> (Block<'static>, Rect) {
+    let path = panel.path.display().to_string();
     let base_style = Style::default().bg(theme.bg).fg(theme.fg);
     let border_style = if active {
         Style::default().bg(theme.bg).fg(theme.fg).add_modifier(Modifier::BOLD)
@@ -156,6 +174,8 @@ pub(super) fn panel_block(area: Rect, path: &str, theme: &Theme, active: bool) -
     } else {
         format!("  {path}  ")
     };
+    // Отступ в 1 символ линии рамки от левого угла.
+    let title = Line::from(vec![Span::styled("─", border_style), Span::raw(title)]);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(border_style)
@@ -165,10 +185,20 @@ pub(super) fn panel_block(area: Rect, path: &str, theme: &Theme, active: bool) -
     (block, inner)
 }
 
+/// Сводка пометок для разделителя над инфо-строкой: `[ 10 files, 105.0K ]`; `None` — пометок нет.
+pub(super) fn marked_title(panel: &Panel) -> Option<String> {
+    let (n, size) = crate::app::marked_summary(panel);
+    if n == 0 {
+        return None;
+    }
+    let noun = if n == 1 { "file" } else { "files" };
+    Some(format!("[ {n} {noun}, {} ]", human_size(size)))
+}
+
 /// Рисует панель в многоколоночном режиме (column-major: заполнение по столбцам сверху вниз).
 /// Имена без размеров; `←`/`→` — между столбцами. Скролл — горизонтальный, по столбцам.
 pub(super) fn render_panel_grid(f: &mut Frame, area: Rect, panel: &mut Panel, theme: &Theme, active: bool) {
-    let (block, inner) = panel_block(area, &panel.path.display().to_string(), theme, active);
+    let (block, inner) = panel_block(area, panel, theme, active);
     f.render_widget(block, area);
     let (list_area, sep_area, info_area) = split_info(inner);
     let cols = panel.columns.max(1);
@@ -243,7 +273,7 @@ pub(super) fn tree_line(e: &VfsEntry, expanded: &std::collections::HashSet<Strin
 
 /// Рисует панель как сворачиваемое дерево (один столбец, отступы, маркеры).
 pub(super) fn render_panel_tree(f: &mut Frame, area: Rect, panel: &mut Panel, theme: &Theme, active: bool) {
-    let (block, inner) = panel_block(area, &panel.path.display().to_string(), theme, active);
+    let (block, inner) = panel_block(area, panel, theme, active);
     f.render_widget(block, area);
     let (list_area, sep_area, info_area) = split_info(inner);
     let inner_width = list_area.width as usize;
@@ -282,7 +312,7 @@ pub(super) fn render_panel(f: &mut Frame, area: Rect, panel: &mut Panel, theme: 
         render_panel_grid(f, area, panel, theme, active);
         return;
     }
-    let (block, inner) = panel_block(area, &panel.path.display().to_string(), theme, active);
+    let (block, inner) = panel_block(area, panel, theme, active);
     f.render_widget(block, area);
     let (list_area, sep_area, info_area) = split_info(inner);
 
