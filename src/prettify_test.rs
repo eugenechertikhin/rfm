@@ -1,4 +1,4 @@
-//! Юнит-тесты модуля `prettify` (в отдельном файле — по уставу).
+//! Юнит-тесты модуля `prettify`
 
 use super::*;
 use std::path::PathBuf;

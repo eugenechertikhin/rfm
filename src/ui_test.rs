@@ -1,4 +1,4 @@
-//! Юнит-тесты модуля `ui` (в отдельном файле — по уставу).
+//! Юнит-тесты модуля `ui`
 
 use super::panel::{file_info_line, format_entry, format_mode, human_size};
 use super::*;
@@ -95,11 +95,47 @@ fn format_entry_fits_width() {
 }
 
 #[test]
-fn file_op_dialog_title_in_brackets() {
+fn input_dialog_title_in_brackets() {
     use super::overlay::input_dialog_title;
-    assert_eq!(input_dialog_title("Copy 2 item(s) to:", true), "[ Copy 2 item(s) to: ]");
-    // Прочие диалоги (напр. пароль FTP) — без скобок.
-    assert_eq!(input_dialog_title("Password:", false), "Password:");
+    assert_eq!(input_dialog_title("Copy 2 item(s) to:"), "[ Copy 2 item(s) to: ]");
+    assert_eq!(input_dialog_title("Password:"), "[ Password: ]");
+}
+
+/// Все модальные окна — с заголовком в скобках: help, settings, поиск по истории, пароль FTP.
+#[test]
+fn overlay_titles_in_brackets() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::{backend::TestBackend, Terminal};
+    let screen = |app: &mut crate::app::App| -> String {
+        let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        term.draw(|f| render(f, app)).unwrap();
+        let buf = term.backend().buffer().clone();
+        (0..buf.area.height)
+            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let chord = |app: &mut crate::app::App, c: char| {
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    };
+    let mut app = crate::app::App::new(crate::config::Config::default());
+    app.config.show_clock = false;
+
+    chord(&mut app, 'h');
+    assert!(screen(&mut app).contains("[ Help ]"));
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    chord(&mut app, 'x');
+    assert!(screen(&mut app).contains("[ Settings ]"));
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    app.dialog = Some(crate::app::Dialog::HistorySearch {
+        input: crate::app::CmdLine::default(),
+        results: vec![],
+        sel: 0,
+    });
+    assert!(screen(&mut app).contains("[ History search (Ctrl+g) ]"));
 }
 
 #[test]
@@ -322,4 +358,57 @@ fn focused_dialog_button_uses_button_sel_bg() {
     assert_eq!(buf[(x, y)].fg, theme.button_sel_fg);
     let (x, y) = cell_of("[ Delete (c-y) ]");
     assert_eq!(buf[(x, y)].bg, theme.cursor_bg); // не в фокусе — цвет курсора
+}
+
+#[test]
+fn editor_selection_uses_select_bg_fg() {
+    use ratatui::{backend::TestBackend, Terminal};
+    let dir = std::env::temp_dir().join(format!("rfm_ui_sel_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("f.txt");
+    std::fs::write(&path, "qqqq\nzzzz\n").unwrap();
+    let mut app = crate::app::App::new(crate::config::Config::default());
+    app.config.show_clock = false;
+    let mut ed = crate::app::Editor::load(&path).unwrap();
+    ed.sel = Some((0, 0));
+    ed.cur_line = 1; // курсор не на выделенной строке
+    app.active_panel_mut().editor = Some(ed);
+    let theme = app.theme.clone();
+    let mut term = Terminal::new(TestBackend::new(60, 12)).unwrap();
+    term.draw(|f| render(f, &mut app)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let find = |s: &str| {
+        (0..buf.area.height)
+            .find_map(|y| (0..buf.area.width).find(|&x| buf[(x, y)].symbol() == s).map(|x| (x, y)))
+            .unwrap()
+    };
+    let (x, y) = find("q");
+    assert_eq!(buf[(x, y)].bg, theme.select_bg);
+    assert_eq!(buf[(x, y)].fg, theme.select_fg);
+    let (x, y) = find("z");
+    assert_ne!(buf[(x, y)].bg, theme.select_bg); // невыделенная строка
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Диалог замены (`Ctrl+r`): заголовок, оба поля и три кнопки.
+#[test]
+fn replace_dialog_renders_fields_and_buttons() {
+    use ratatui::{backend::TestBackend, Terminal};
+    let mut app = crate::app::App::new(crate::config::Config::default());
+    app.config.show_clock = false;
+    app.dialog = Some(crate::app::Dialog::Replace {
+        find: crate::app::CmdLine::from_str("foo"),
+        repl: crate::app::CmdLine::from_str("bar"),
+        field: 1,
+    });
+    let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    term.draw(|f| render(f, &mut app)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let screen = (0..buf.area.height)
+        .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    for s in ["[ replace ]", "Find:    foo", "Replace: bar", "[ Replace (c-y) ]", "[ Replace all (c-l) ]", "[ Cancel (c-n) ]"] {
+        assert!(screen.contains(s), "missing {s}");
+    }
 }

@@ -1,4 +1,4 @@
-//! Юнит-тесты модуля `theme` (в отдельном файле — по уставу).
+//! Юнит-тесты модуля `theme` 
 
 use super::*;
 
@@ -26,6 +26,8 @@ fn from_config_falls_back_on_bad_values() {
         cmdline_fg: String::new(),
         button_sel_bg: String::new(), // fallback
         button_sel_fg: String::new(), // fallback
+        select_bg: "nope".to_string(), // fallback
+        select_fg: "blue".to_string(),
     };
     let t = Theme::from_config(&tc);
     assert_eq!(t.bg, Color::Rgb(0, 0, 0));
@@ -38,6 +40,8 @@ fn from_config_falls_back_on_bad_values() {
     // cmdline не наследует bg/fg темы — тоже из дефолта.
     assert_eq!(t.cmdline_bg, d.cmdline_bg);
     assert_eq!(t.cmdline_fg, d.cmdline_fg);
+    assert_eq!(t.select_bg, d.select_bg);
+    assert_eq!(t.select_fg, Color::Blue);
 }
 
 #[test]
@@ -50,4 +54,8 @@ fn builtin_themes_button_sel_bg() {
     assert_eq!(Theme::default_dark().button_sel_fg, Color::Rgb(220, 220, 220));
     assert_eq!(get("default").button_sel_fg, Color::Rgb(220, 220, 220));
     assert_eq!(get("mc").button_sel_fg, Color::Black);
+    assert_eq!(get("default").select_bg, Color::Rgb(78, 78, 78));
+    assert_eq!(get("default").select_fg, Color::Rgb(220, 220, 220));
+    assert_eq!(get("mc").select_bg, Color::Cyan);
+    assert_eq!(get("mc").select_fg, Color::Black);
 }

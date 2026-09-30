@@ -1,4 +1,4 @@
-//! Юнит-тесты модуля `history` (в отдельном файле — по уставу).
+//! Юнит-тесты модуля `history`
 
 use super::*;
 use std::sync::atomic::{AtomicU32, Ordering};

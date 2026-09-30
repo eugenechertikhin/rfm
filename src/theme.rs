@@ -17,10 +17,13 @@ pub struct Theme {
     /// Фон/текст кнопки диалога в фокусе.
     pub button_sel_bg: Color,
     pub button_sel_fg: Color,
+    /// Фон/текст выделенных строк в редакторе.
+    pub select_bg: Color,
+    pub select_fg: Color,
 }
 
 impl Theme {
-    /// Дефолт по уставу: тёмно-серый фон, белые буквы, светло-серый курсор с
+    /// Дефолт: тёмно-серый фон, белые буквы, светло-серый курсор с
     /// чёрными буквами под ним, помеченные файлы — жёлтые.
     pub fn default_dark() -> Self {
         Self {
@@ -33,6 +36,8 @@ impl Theme {
             cmdline_fg: Color::Rgb(220, 220, 220),
             button_sel_bg: Color::Black,
             button_sel_fg: Color::Rgb(220, 220, 220),
+            select_bg: Color::Rgb(78, 78, 78),
+            select_fg: Color::Rgb(220, 220, 220),
         }
     }
 
@@ -51,6 +56,8 @@ impl Theme {
             cmdline_fg: c(&tc.cmdline_fg, d.cmdline_fg),
             button_sel_bg: c(&tc.button_sel_bg, d.button_sel_bg),
             button_sel_fg: c(&tc.button_sel_fg, d.button_sel_fg),
+            select_bg: c(&tc.select_bg, d.select_bg),
+            select_fg: c(&tc.select_fg, d.select_fg),
         }
     }
 }

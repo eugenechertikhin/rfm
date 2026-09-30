@@ -134,7 +134,7 @@ pub(super) fn render_settings(f: &mut Frame, area: Rect, app: &App, theme: &Them
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("Settings")
+        .title("[ Settings ]")
         .style(Style::default().bg(theme.bg).fg(theme.fg));
     let inner = block.inner(rect);
     f.render_widget(Clear, rect);
@@ -219,7 +219,7 @@ pub(super) fn render_history_search(
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("History search (Ctrl+g)")
+        .title("[ History search (Ctrl+g) ]")
         .style(Style::default().bg(theme.bg).fg(theme.fg));
     f.render_widget(Clear, rect);
     f.render_widget(block, rect);
@@ -295,8 +295,12 @@ pub(super) fn render_dialog(f: &mut Frame, area: Rect, dialog: &Dialog, focus: u
         render_confirm(f, area, message, &labels, focus, theme);
         return;
     }
+    if let Dialog::Replace { find, repl, field } = dialog {
+        render_replace(f, area, [find, repl], *field, &labels, focus, theme);
+        return;
+    }
     let Dialog::Input { prompt, input, op } = dialog else {
-        return; // Confirm — выше, HistorySearch — отдельно
+        return; // Confirm/Replace — выше, HistorySearch — отдельно
     };
     let secret = is_secret(op);
     let body = if secret {
@@ -307,8 +311,7 @@ pub(super) fn render_dialog(f: &mut Frame, area: Rect, dialog: &Dialog, focus: u
     // Кнопки для copy/move/select/create (действия на Ctrl+Y/S/N).
     let buttons: Option<&[&str]> = (!labels.is_empty()).then_some(labels.as_slice());
 
-    let file_op = is_file_op(op);
-    let title = input_dialog_title(prompt, file_op);
+    let title = input_dialog_title(prompt);
     let btn_w = buttons.map(button_row_width).unwrap_or(0);
     let content_w = UnicodeWidthStr::width(body.as_str())
         .max(UnicodeWidthStr::width(title.as_str()))
@@ -351,19 +354,66 @@ pub(super) fn render_dialog(f: &mut Frame, area: Rect, dialog: &Dialog, focus: u
     ));
 }
 
-/// Файловые операции create/copy/move и select/unselect: заголовок `[ … ]` как у активной панели и диалог шире.
-fn is_file_op(op: &crate::app::PendingOp) -> bool {
-    use crate::app::PendingOp::*;
-    matches!(op, MkDir(_) | Copy(_) | Move(_) | Select(_))
+/// Подписи полей диалога замены (выровнены по ширине).
+const REPLACE_LABELS: [&str; 2] = ["Find:    ", "Replace: "];
+
+/// Рисует диалог замены в редакторе (`Ctrl+r`): поля поиска и замены,
+/// пустая строка и ряд кнопок; каретка — в активном поле `field`.
+fn render_replace(
+    f: &mut Frame,
+    area: Rect,
+    inputs: [&crate::app::CmdLine; 2],
+    field: usize,
+    buttons: &[&str],
+    focus: Option<usize>,
+    theme: &Theme,
+) {
+    let title = input_dialog_title("replace");
+    let label_w = UnicodeWidthStr::width(REPLACE_LABELS[0]);
+    let content_w = inputs
+        .iter()
+        .map(|i| label_w + UnicodeWidthStr::width(i.text().as_str()))
+        .max()
+        .unwrap_or(0)
+        .max(UnicodeWidthStr::width(title.as_str()))
+        .max(button_row_width(buttons));
+    let width = input_dialog_width(content_w, 115, area.width);
+    // Рамка + два поля + пустая строка + кнопки.
+    let rect = centered_rect(area, width, 6);
+
+    let base = Style::default().bg(theme.bg).fg(theme.fg);
+    let block = Block::default().borders(Borders::ALL).title(title).style(base);
+    let inner = block.inner(rect);
+    f.render_widget(Clear, rect);
+    f.render_widget(block, rect);
+
+    for (row, (label, input)) in REPLACE_LABELS.iter().zip(inputs).enumerate() {
+        f.render_widget(
+            Paragraph::new(format!("{label}{}", input.text())).style(base),
+            Rect::new(inner.x, inner.y + row as u16, inner.width, 1),
+        );
+    }
+    render_button_row(f, Rect::new(inner.x, inner.y + 3, inner.width, 1), buttons, focus, theme);
+
+    let field = field.min(1);
+    let input = inputs[field];
+    let before: String = input.chars[..input.cursor].iter().collect();
+    let x = inner.x + (label_w + UnicodeWidthStr::width(before.as_str())) as u16;
+    f.set_cursor_position(Position::new(
+        x.min(inner.x + inner.width.saturating_sub(1)),
+        inner.y + field as u16,
+    ));
 }
 
-/// Заголовок диалога ввода: для файловых операций — в скобках, как у активной панели.
-pub(super) fn input_dialog_title(prompt: &str, file_op: bool) -> String {
-    if file_op {
-        format!("[ {prompt} ]")
-    } else {
-        prompt.to_string()
-    }
+/// Диалоги create/copy/move, select/unselect и поиска в редакторе — шире содержимого.
+fn is_file_op(op: &crate::app::PendingOp) -> bool {
+    use crate::app::PendingOp::*;
+    matches!(op, MkDir(_) | Copy(_) | Move(_) | Select(_) | EditorSearch)
+}
+
+/// Заголовок диалога ввода — в скобках, как у активной панели.
+pub(super) fn input_dialog_title(prompt: &str) -> String {
+    format!("[ {prompt} ]")
 }
 
 /// Ширина содержимого диалога ввода в процентах: create — +50%,

@@ -65,6 +65,9 @@ pub struct ThemeConfig {
     /// Фон/текст кнопки в фокусе в диалогах.
     pub button_sel_bg: String,
     pub button_sel_fg: String,
+    /// Фон/текст выделенных строк во встроенном редакторе.
+    pub select_bg: String,
+    pub select_fg: String,
 }
 
 /// Описание одного типа архива (секция `[[archive]]`).
@@ -180,6 +183,8 @@ pub fn builtin_themes() -> Vec<ThemeConfig> {
             cmdline_fg: "#dcdcdc".to_string(),
             button_sel_bg: "black".to_string(),
             button_sel_fg: "#dcdcdc".to_string(),
+            select_bg: "#4e4e4e".to_string(),
+            select_fg: "#dcdcdc".to_string(),
         },
         ThemeConfig {
             name: "mc".to_string(),
@@ -192,6 +197,8 @@ pub fn builtin_themes() -> Vec<ThemeConfig> {
             cmdline_fg: "white".to_string(),
             button_sel_bg: "yellow".to_string(),
             button_sel_fg: "black".to_string(),
+            select_bg: "cyan".to_string(),
+            select_fg: "black".to_string(),
         },
     ]
 }

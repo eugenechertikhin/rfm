@@ -193,7 +193,7 @@ pub(super) fn render_help(f: &mut Frame, area: Rect, v: &mut Viewer, theme: &The
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("Help")
+        .title(format!("[ {} ]", v.name))
         .style(Style::default().bg(theme.bg).fg(theme.fg));
     let inner = block.inner(rect);
     f.render_widget(Clear, rect);

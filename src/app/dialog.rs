@@ -11,6 +11,8 @@ pub enum BtnAct {
     Sudo,
     /// `c-n`: отмена.
     Cancel,
+    /// `c-l`: применить ко всем (Replace all).
+    All,
 }
 
 impl BtnAct {
@@ -19,6 +21,7 @@ impl BtnAct {
             BtnAct::Ok => 'y',
             BtnAct::Sudo => 's',
             BtnAct::Cancel => 'n',
+            BtnAct::All => 'l',
         };
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
     }
@@ -32,7 +35,8 @@ pub fn dialog_buttons(d: &Dialog) -> &'static [(&'static str, BtnAct)] {
         Dialog::Confirm { .. } => &[("[ Delete (c-y) ]", Ok), ("[ Sudo (c-s) ]", Sudo), ("[ Cancel (c-n) ]", Cancel)],
         Dialog::Input { op: PendingOp::Copy(_), .. } => &[("[ Copy (c-y) ]", Ok), ("[ Sudo (c-s) ]", Sudo), ("[ Cancel (c-n) ]", Cancel)],
         Dialog::Input { op: PendingOp::Move(_), .. } => &[("[ Move (c-y) ]", Ok), ("[ Sudo (c-s) ]", Sudo), ("[ Cancel (c-n) ]", Cancel)],
-        Dialog::Input { op: PendingOp::Select(_) | PendingOp::MkDir(_), .. } => &[("[ OK (c-y) ]", Ok), ("[ Cancel (c-n) ]", Cancel)],
+        Dialog::Input { op: PendingOp::Select(_) | PendingOp::MkDir(_) | PendingOp::EditorSearch, .. } => &[("[ OK (c-y) ]", Ok), ("[ Cancel (c-n) ]", Cancel)],
+        Dialog::Replace { .. } => &[("[ Replace (c-y) ]", Ok), ("[ Replace all (c-l) ]", All), ("[ Cancel (c-n) ]", Cancel)],
         _ => &[],
     }
 }
@@ -64,6 +68,7 @@ impl App {
     fn dialog_key(&mut self, key: KeyEvent) -> Action {
         let dialog = self.dialog.take().expect("dialog present");
         match dialog {
+            Dialog::Replace { find, repl, field } => self.replace_dialog_key(find, repl, field, key),
             Dialog::Confirm { message, op } => {
                 let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                 match key.code {
@@ -337,6 +342,11 @@ impl App {
             }
             PendingOp::QuitEditor => {
                 self.close_editor();
+                return;
+            }
+            PendingOp::EditorSearch => {
+                let text = arg.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+                self.editor_search_start(&text);
                 return;
             }
         }

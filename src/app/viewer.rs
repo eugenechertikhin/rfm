@@ -414,11 +414,8 @@ Viewer (c-x v):
   tab                    switch to another panel
 
 Editor (c-x e):
-  arrows                 move cursor (right at eol wraps to next line)
-  printable              insert at cursor (buffer in memory)
-  Enter / Backspace      split line / delete left
-  c-x s                  save
-  c-x x                  save and close
+  c-x h                  editor keys (inside the editor)
+  c-x s / c-x x          save / save and close
   Esc / c-x q            close WITHOUT saving
 
 Help: arrows scroll · q/Esc close";

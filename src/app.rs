@@ -5,6 +5,7 @@ mod complete;
 mod dialog;
 pub use dialog::dialog_buttons;
 mod editor;
+mod editor_find;
 mod mouse;
 mod panel;
 mod search;
@@ -90,6 +91,8 @@ pub enum PendingOp {
     Select(bool),
     /// Закрыть редактор активной панели без сохранения (подтверждение при `*`).
     QuitEditor,
+    /// Поиск текста в редакторе активной панели (строка — из ввода).
+    EditorSearch,
 }
 
 /// Модальный диалог.
@@ -108,6 +111,13 @@ pub enum Dialog {
         input: CmdLine,
         results: Vec<String>,
         sel: usize,
+    },
+    /// Поиск с заменой в редакторе (`Ctrl+r`): поле поиска и поле замены;
+    /// `field` — активное поле (0 — поиск, 1 — замена).
+    Replace {
+        find: CmdLine,
+        repl: CmdLine,
+        field: usize,
     },
 }
 
@@ -172,6 +182,10 @@ pub struct App {
     pub completion: Option<Completion>,
     /// Последняя маска select/unselect (только в памяти, не персистится).
     pub last_mask: Option<String>,
+    /// Последняя строка поиска в редакторе (`Ctrl+s`; только в памяти).
+    pub editor_search: Option<String>,
+    /// Последняя строка замены в редакторе (`Ctrl+r`; только в памяти).
+    pub editor_replace: Option<String>,
 }
 
 impl App {
@@ -248,6 +262,8 @@ impl App {
             prompt,
             completion: None,
             last_mask: None,
+            editor_search: None,
+            editor_replace: None,
         }
     }
 
@@ -766,7 +782,7 @@ impl App {
         }
     }
 
-    /// Действие по файлу под курсором (устав, «Действия по <enter>»).
+    /// Действие по файлу под курсором.
     fn activate_cursor(&mut self) -> Action {
         let panel = self.active_panel();
         if panel.entries.is_empty() {

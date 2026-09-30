@@ -1,4 +1,4 @@
-//! Юнит-тесты модуля `persist` (в отдельном файле — по уставу).
+//! Юнит-тесты модуля `persist`
 
 use super::*;
 use std::sync::atomic::{AtomicU32, Ordering};

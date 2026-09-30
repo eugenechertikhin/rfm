@@ -35,11 +35,15 @@ pub(super) fn render_editor(f: &mut Frame, area: Rect, ed: &mut Editor, theme: &
     ed.ensure_visible(ed.page, ed.cols);
 
     let cur_style = Style::default().bg(theme.cursor_bg).fg(theme.cursor_fg);
+    // Выделенные строки (Shift+↑/↓) — фоном выделения темы.
+    let sel = ed.sel_range();
+    let sel_style = Style::default().bg(theme.select_bg).fg(theme.select_fg);
     for row in 0..inner.height {
         let li = ed.voff + row as usize;
         if li >= ed.lines.len() {
             break;
         }
+        let base = if sel.is_some_and(|(a, b)| (a..=b).contains(&li)) { sel_style } else { base };
         let rect = Rect::new(inner.x, inner.y + row, inner.width, 1);
         let visible: String = ed.lines[li].chars().skip(ed.hoff).map(sanitize_char).collect();
         let line = if active && li == ed.cur_line {

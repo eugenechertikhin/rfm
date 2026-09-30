@@ -87,9 +87,9 @@ impl App {
             let a = self.panels[pi].area;
             if a.width >= 3
                 && a.height >= 3
-                && col >= a.x + 1
+                && col > a.x
                 && col < a.x + a.width - 1
-                && row >= a.y + 1
+                && row > a.y
                 && row < a.y + a.height - 1
             {
                 let rel_row = (row - a.y - 1) as usize;

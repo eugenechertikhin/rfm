@@ -1,4 +1,4 @@
-//! VFS — единый интерфейс к «локациям» (см. устав).
+//! VFS — единый интерфейс к «локациям».
 
 pub mod archive;
 pub mod ftp;
@@ -125,7 +125,7 @@ fn remote_join(cwd: &str, name: &str) -> String {
 }
 
 /// Путь в VFS — стек слоёв. Вход в архив/на сервер будет push’ить слой, выход —
-/// pop’ить (см. устав). Пока стек всегда содержит один `Local`.
+/// pop’ить. Пока стек всегда содержит один `Local`.
 #[derive(Debug, Clone)]
 pub struct VfsPath {
     stack: Vec<Layer>,

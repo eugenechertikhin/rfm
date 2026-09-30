@@ -1380,23 +1380,29 @@ fn grid_column_major_navigation() {
 #[test]
 fn theme_selected_from_config() {
     use crate::config::ThemeConfig;
-    let mut config = Config::default();
-    config.theme = "solar".to_string();
-    config.themes = vec![ThemeConfig {
-        name: "solar".to_string(),
-        bg: "#101010".to_string(),
-        fg: "white".to_string(),
-        cursor_bg: "yellow".to_string(),
-        cursor_fg: "black".to_string(),
-        mark_fg: "green".to_string(),
-        cmdline_bg: "black".to_string(),
-        cmdline_fg: "white".to_string(),
-        button_sel_bg: "red".to_string(),
-        button_sel_fg: "blue".to_string(),
-    }];
+    let config = Config {
+        theme: "solar".to_string(),
+        themes: vec![ThemeConfig {
+            name: "solar".to_string(),
+            bg: "#101010".to_string(),
+            fg: "white".to_string(),
+            cursor_bg: "yellow".to_string(),
+            cursor_fg: "black".to_string(),
+            mark_fg: "green".to_string(),
+            cmdline_bg: "black".to_string(),
+            cmdline_fg: "white".to_string(),
+            button_sel_bg: "red".to_string(),
+            button_sel_fg: "blue".to_string(),
+            select_bg: "magenta".to_string(),
+            select_fg: String::new(), // fallback
+        }],
+        ..Config::default()
+    };
     let app = App::new(config);
     assert_eq!(app.theme.bg, ratatui::style::Color::Rgb(16, 16, 16));
     assert_eq!(app.theme.mark_fg, ratatui::style::Color::Green);
     assert_eq!(app.theme.button_sel_bg, ratatui::style::Color::Red);
     assert_eq!(app.theme.button_sel_fg, ratatui::style::Color::Blue);
+    assert_eq!(app.theme.select_bg, ratatui::style::Color::Magenta);
+    assert_eq!(app.theme.select_fg, crate::theme::Theme::default_dark().select_fg);
 }
