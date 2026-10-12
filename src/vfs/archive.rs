@@ -134,17 +134,92 @@ pub fn open(file: &Path, cfg: &ArchiveConfig) -> io::Result<Vec<ArchiveItem>> {
         let msg = err.lines().next().unwrap_or("list command failed").trim();
         return Err(io::Error::other(msg.to_string()));
     }
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    match cfg.name.as_str() {
-        "zip" => Ok(parse_zip(&stdout)),
-        "tar" => Ok(parse_tar(&stdout)),
-        "7z" => Ok(parse_7z(&stdout)),
-        "rar" => Ok(parse_rar(&stdout)),
+    parse_listing(&cfg.name, &String::from_utf8_lossy(&out.stdout))
+}
+
+/// Листинг архива на SFTP-сервере: `list_command` выполняется **там** (по мастер-сокету),
+/// вывод разбирается теми же парсерами. Архив не скачивается.
+pub fn open_remote(sock: &Path, t: &super::sftp::SftpTarget, file: &str, cfg: &ArchiveConfig) -> io::Result<Vec<ArchiveItem>> {
+    let out = super::sftp::ssh_run(sock, t, &format!("{} {}", cfg.list_command, shell_quote(file)))?;
+    parse_listing(&cfg.name, &out)
+}
+
+/// Разбор вывода листинга встроенным парсером по типу архива.
+pub fn parse_listing(kind: &str, stdout: &str) -> io::Result<Vec<ArchiveItem>> {
+    match kind {
+        "zip" => Ok(parse_zip(stdout)),
+        "tar" => Ok(parse_tar(stdout)),
+        "7z" => Ok(parse_7z(stdout)),
+        "rar" => Ok(parse_rar(stdout)),
         other => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("no built-in parser for archive type '{other}'"),
         )),
     }
+}
+
+/// Аргументы команды извлечения записи `member` (директория — с содержимым) из архива
+/// типа `kind` в директорию `out`; `None` — тип не поддерживает извлечение.
+/// Имена записей — как в архиве (относительно корня), вывод — под `out/member`.
+pub fn extract_args(kind: &str, file: &Path, member: &str, is_dir: bool, out: &Path) -> Option<(String, Vec<String>)> {
+    let file = file.to_string_lossy().into_owned();
+    let out = out.to_string_lossy().into_owned();
+    let m = member.to_string();
+    let sub = format!("{member}/*");
+    let (prog, args) = match kind {
+        "zip" => {
+            let pat = if is_dir { sub } else { m };
+            ("unzip", vec!["-qo".into(), file, pat, "-d".into(), out])
+        }
+        "tar" => ("tar", vec!["-xf".into(), file, "-C".into(), out, "--".into(), m]),
+        "7z" => {
+            let mut a = vec!["x".into(), "-y".into(), format!("-o{out}"), file, m];
+            if is_dir {
+                a.push(sub);
+            }
+            ("7z", a)
+        }
+        "rar" => {
+            let mut a = vec!["x".into(), "-o+".into(), "-inul".into(), file, m];
+            if is_dir {
+                a.push(sub);
+            }
+            a.push(format!("{out}/"));
+            ("unrar", a)
+        }
+        _ => return None,
+    };
+    Some((prog.to_string(), args))
+}
+
+/// Команда извлечения для выполнения на сервере (по ssh): та же, что локально,
+/// но строкой с экранированными аргументами. `None` — тип не поддерживает извлечение.
+pub fn remote_extract_cmd(kind: &str, file: &str, member: &str, is_dir: bool, out: &str) -> Option<String> {
+    let (prog, args) = extract_args(kind, Path::new(file), member, is_dir, Path::new(out))?;
+    let mut cmd = prog;
+    for a in &args {
+        cmd.push(' ');
+        cmd.push_str(&shell_quote(a));
+    }
+    Some(cmd)
+}
+
+/// Извлекает запись архива в директорию `out` (результат — `out/member`).
+pub fn extract(kind: &str, file: &Path, member: &str, is_dir: bool, out: &Path) -> io::Result<()> {
+    let (prog, args) = extract_args(kind, file, member, is_dir, out)
+        .ok_or_else(|| io::Error::other(format!("extract is not supported for {kind}")))?;
+    let res = Command::new(&prog).args(&args).output()?;
+    if !res.status.success() {
+        let err = String::from_utf8_lossy(&res.stderr);
+        let msg = err.lines().find(|l| !l.trim().is_empty()).unwrap_or("extract failed").trim();
+        return Err(io::Error::other(format!("{prog}: {msg}")));
+    }
+    if is_dir {
+        std::fs::create_dir_all(out.join(member))?; // пустая директория в архиве
+    } else if !out.join(member).exists() {
+        return Err(io::Error::other(format!("{member}: not extracted")));
+    }
+    Ok(())
 }
 
 /// Парсер вывода `7z l`: колонки `Date Time Attr Size Compressed Name`

@@ -5,12 +5,14 @@ pub mod ftp;
 pub mod http;
 pub mod local;
 pub mod sftp;
+pub mod transfer;
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use archive::ArchiveItem;
+use transfer::{ArchiveSrc, FtpConn, Loc, SftpConn};
 
 /// Тип записи в списке.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +71,8 @@ impl VfsEntry {
 struct ArchiveLayer {
     /// Имя файла архива — заголовок «директории» и цель курсора при выходе.
     label: String,
+    /// Файл архива, его тип (`name` из конфига) и сервер (архив на SFTP) — для извлечения.
+    src: ArchiveSrc,
     /// Полный плоский список записей архива (читается один раз).
     items: Vec<ArchiveItem>,
     /// Текущий подпуть внутри архива (пусто = корень).
@@ -211,10 +215,13 @@ impl VfsPath {
         }
     }
 
-    /// Push слоя архива (вход по `Enter`/`cd`). `label` — имя файла архива.
-    pub fn push_archive(&mut self, label: String, items: Vec<ArchiveItem>) {
+    /// Push слоя архива (вход по `Enter`/`cd`). Заголовок — имя файла архива;
+    /// `kind` — тип архива из конфига (выбирает команду извлечения).
+    pub fn push_archive(&mut self, src: ArchiveSrc, items: Vec<ArchiveItem>) {
+        let label = src.file.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         self.stack.push(Layer::Archive(ArchiveLayer {
             label,
+            src,
             items,
             cwd: String::new(),
         }));
@@ -357,7 +364,67 @@ impl VfsPath {
     /// Push слоя архива из готового набора записей (для тестов навигации).
     #[cfg(test)]
     pub(crate) fn push_archive_items(&mut self, label: &str, items: Vec<ArchiveItem>) {
-        self.push_archive(label.to_string(), items);
+        let src = ArchiveSrc {
+            file: PathBuf::from(label),
+            kind: "zip".to_string(),
+            remote: None,
+        };
+        self.push_archive(src, items);
+    }
+
+    /// Текущая локация как `Loc` — база для файловых операций (copy/move/…).
+    /// HTTP — только чтение: ошибка.
+    pub fn cwd_loc(&self) -> Result<Loc, String> {
+        Ok(match self.top() {
+            Layer::Local(p) => Loc::Local(p.clone()),
+            Layer::Archive(a) => Loc::Archive(a.src.clone(), a.cwd.clone()),
+            Layer::Sftp(s) => Loc::Sftp(
+                SftpConn {
+                    target: s.target.clone(),
+                    sock: s.sock.clone(),
+                },
+                s.cwd.clone(),
+            ),
+            Layer::Ftp(f) => Loc::Ftp(
+                FtpConn {
+                    target: f.target.clone(),
+                    password: f.password.clone(),
+                },
+                f.cwd.clone(),
+            ),
+            Layer::Http(_) => return Err("http is read-only".to_string()),
+        })
+    }
+
+    /// URL текущей удалённой директории (sftp/ftp) — для поля назначения copy/move.
+    pub fn remote_url(&self) -> Option<String> {
+        match self.top() {
+            Layer::Sftp(s) => Some(sftp::url(&s.target, &s.cwd)),
+            Layer::Ftp(f) => Some(ftp::url(&f.target, &f.cwd)),
+            _ => None,
+        }
+    }
+
+    /// Открытая в этом пути SFTP-сессия на тот же сервер (user/host/port).
+    pub fn find_sftp(&self, t: &sftp::SftpTarget) -> Option<SftpConn> {
+        self.stack.iter().find_map(|l| match l {
+            Layer::Sftp(s) if transfer::same_sftp(&s.target, t) => Some(SftpConn {
+                target: s.target.clone(),
+                sock: s.sock.clone(),
+            }),
+            _ => None,
+        })
+    }
+
+    /// Открытая в этом пути FTP-сессия на тот же сервер (user/host/port).
+    pub fn find_ftp(&self, t: &ftp::FtpTarget) -> Option<FtpConn> {
+        self.stack.iter().find_map(|l| match l {
+            Layer::Ftp(f) if transfer::same_ftp(&f.target, t) => Some(FtpConn {
+                target: f.target.clone(),
+                password: f.password.clone(),
+            }),
+            _ => None,
+        })
     }
 }
 

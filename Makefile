@@ -1,5 +1,8 @@
 # rfm build & packaging.
 # Targets: debug, release, debian (.deb), arch (pacman package), rpm (.rpm), clean.
+# `make` without arguments builds release.
+
+.DEFAULT_GOAL := release
 
 NAME     := rfm
 VERSION  := $(shell cat VERSION)
@@ -8,13 +11,32 @@ BUILD    := build
 # Debian architecture (dpkg on a debian host; uname fallback for cross checks).
 DEB_ARCH := $(shell dpkg --print-architecture 2>/dev/null || uname -m)
 
-.PHONY: debug release debian arch rpm clean
+.PHONY: version debug release debian arch rpm clean
 
-debug:
+debug: version
 	cargo build
 
-release:
+release: version
 	cargo build --release
+
+# ── Версии ─────────────────────────────────────────────────────────────
+# Синхронизирует `version` в Cargo.toml каждого крейта из корневого VERSION.
+# Трогает только строку версии пакета (якорь ^version — зависимости задаются
+# инлайн-таблицами и под якорь не попадают). Файл переписывается только при
+# реальном расхождении — иначе смена mtime зря дёргала бы пересборку cargo.
+.PHONY: version
+version:
+	@v=$$(tr -d '[:space:]' < VERSION); \
+	if [ -z "$$v" ]; then echo "error: VERSION file is empty" >&2; exit 1; fi; \
+	for c in $(ALL_CRATES); do \
+		cur=$$(sed -n 's/^version = "\(.*\)"$$/\1/p' $$c/Cargo.toml); \
+		if [ "$$cur" != "$$v" ]; then \
+			echo ">> $$c: version $$cur -> $$v"; \
+			sed "s/^version = \".*\"$$/version = \"$$v\"/" $$c/Cargo.toml > $$c/Cargo.toml.tmp \
+				&& mv $$c/Cargo.toml.tmp $$c/Cargo.toml || exit $$?; \
+		fi; \
+	done; \
+	echo ">> versions in sync ($$v)"
 
 # --- Debian package (requires dpkg-deb; run on a debian-like host) ---
 debian: release
@@ -29,7 +51,7 @@ debian: release
 	@echo "package: $(BUILD)/$(NAME)_$(VERSION)_$(DEB_ARCH).deb"
 
 # --- Arch package (requires makepkg; run on an arch host, not as root) ---
-arch:
+arch: release
 	rm -rf $(BUILD)/arch
 	mkdir -p $(BUILD)/arch
 	git archive --format=tar.gz --prefix=$(NAME)-$(VERSION)/ \
@@ -40,7 +62,7 @@ arch:
 	@echo "package: $(BUILD)/arch/$(NAME)-$(VERSION)-1-*.pkg.tar.*"
 
 # --- RPM package (requires rpmbuild; run on an rpm-based host) ---
-rpm:
+rpm: release
 	rm -rf $(BUILD)/rpm
 	mkdir -p $(BUILD)/rpm/SOURCES $(BUILD)/rpm/SPECS
 	git archive --format=tar.gz --prefix=$(NAME)-$(VERSION)/ \

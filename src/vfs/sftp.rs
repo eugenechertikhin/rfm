@@ -85,22 +85,169 @@ pub fn master_args(sock: &Path, t: &SftpTarget) -> Vec<String> {
     a
 }
 
-/// Листинг удалённой директории по мастер-сокету (без переавторизации).
-pub fn list(sock: &Path, t: &SftpTarget, path: &str) -> io::Result<Vec<VfsEntry>> {
-    let mut cmd = Command::new("ssh");
-    cmd.arg("-S").arg(sock).arg("-o").arg("BatchMode=yes");
+/// Аргументы `ssh` для выполнения `remote_cmd` по мастер-сокету (без переавторизации).
+pub fn ssh_args(sock: &Path, t: &SftpTarget, remote_cmd: &str) -> Vec<String> {
+    let mut a = vec![
+        "-S".to_string(),
+        sock.to_string_lossy().into_owned(),
+        "-o".to_string(),
+        "BatchMode=yes".to_string(),
+    ];
     if let Some(p) = t.port {
-        cmd.arg("-p").arg(p.to_string());
+        a.push("-p".to_string());
+        a.push(p.to_string());
     }
-    cmd.arg(user_host(t));
-    cmd.arg(format!("ls -la -- {}", shell_quote(path)));
-    let out = cmd.output()?;
+    a.push(user_host(t));
+    a.push(remote_cmd.to_string());
+    a
+}
+
+/// Выполняет команду на сервере; stdout — при успехе, первая строка stderr — ошибка.
+pub fn ssh_run(sock: &Path, t: &SftpTarget, remote_cmd: &str) -> io::Result<String> {
+    let out = Command::new("ssh").args(ssh_args(sock, t, remote_cmd)).output()?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        let msg = err.lines().next().unwrap_or("ssh ls failed").trim();
+        let msg = err.lines().next().unwrap_or("ssh command failed").trim();
         return Err(io::Error::other(msg.to_string()));
     }
-    Ok(parse_ls(&String::from_utf8_lossy(&out.stdout)))
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Листинг удалённой директории по мастер-сокету (без переавторизации).
+pub fn list(sock: &Path, t: &SftpTarget, path: &str) -> io::Result<Vec<VfsEntry>> {
+    let out = ssh_run(sock, t, &format!("ls -la -- {}", shell_quote(path)))?;
+    Ok(parse_ls(&out))
+}
+
+/// Абсолютный путь удалённой директории (`.` → домашняя): `cd -- p && pwd`.
+pub fn realpath(sock: &Path, t: &SftpTarget, path: &str) -> io::Result<String> {
+    let out = ssh_run(sock, t, &format!("cd -- {} && pwd", shell_quote(path)))?;
+    let p = out.trim_end_matches('\n').to_string();
+    if p.is_empty() {
+        return Err(io::Error::other("pwd returned nothing"));
+    }
+    Ok(p)
+}
+
+/// Удалённая команда над путями: `tool -- 'p1' 'p2' …` (пути экранируются).
+pub fn remote_cmd(tool: &str, paths: &[&str]) -> String {
+    let mut s = format!("{tool} --");
+    for p in paths {
+        s.push(' ');
+        s.push_str(&shell_quote(p));
+    }
+    s
+}
+
+/// Локальная команда для экрана shell: выполнить `remote_cmd` на сервере **с терминалом**
+/// (`ssh -t` по мастер-сокету) — чтобы, напр., `sudo` мог спросить пароль.
+pub fn tty_cmd(sock: &Path, t: &SftpTarget, remote_cmd: &str) -> String {
+    let mut s = format!("ssh -t -S {}", shell_quote(&sock.to_string_lossy()));
+    if let Some(p) = t.port {
+        s.push_str(&format!(" -p {p}"));
+    }
+    s.push(' ');
+    s.push_str(&shell_quote(&user_host(t)));
+    s.push(' ');
+    s.push_str(&shell_quote(remote_cmd));
+    s
+}
+
+/// Создаёт директорию на сервере (вместе с родителями).
+pub fn mkdir(sock: &Path, t: &SftpTarget, path: &str) -> io::Result<()> {
+    ssh_run(sock, t, &remote_cmd("mkdir -p", &[path])).map(|_| ())
+}
+
+/// Удаляет файл/директорию на сервере (рекурсивно).
+pub fn remove(sock: &Path, t: &SftpTarget, path: &str) -> io::Result<()> {
+    ssh_run(sock, t, &remote_cmd("rm -rf", &[path])).map(|_| ())
+}
+
+/// Копирует внутри сервера `src` в точный путь `dest`.
+pub fn copy(sock: &Path, t: &SftpTarget, src: &str, dest: &str) -> io::Result<()> {
+    ssh_run(sock, t, &remote_cmd("cp -r", &[src, dest])).map(|_| ())
+}
+
+/// Переносит/переименовывает внутри сервера `src` в точный путь `dest`.
+pub fn rename(sock: &Path, t: &SftpTarget, src: &str, dest: &str) -> io::Result<()> {
+    ssh_run(sock, t, &remote_cmd("mv", &[src, dest])).map(|_| ())
+}
+
+/// Существующая директория на сервере?
+pub fn is_dir(sock: &Path, t: &SftpTarget, path: &str) -> bool {
+    ssh_run(sock, t, &remote_cmd("test -d", &[path])).is_ok()
+}
+
+/// Аргумент batch-команды `sftp`: в двойных кавычках, `\` и `"` экранируются.
+pub fn sftp_quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Аргументы `sftp` (batch из stdin) по мастер-сокету.
+pub fn sftp_args(sock: &Path, t: &SftpTarget) -> Vec<String> {
+    let mut a = vec![
+        "-q".to_string(),
+        "-b".to_string(),
+        "-".to_string(),
+        "-o".to_string(),
+        format!("ControlPath={}", sock.to_string_lossy()),
+    ];
+    if let Some(p) = t.port {
+        a.push("-P".to_string());
+        a.push(p.to_string());
+    }
+    a.push(user_host(t));
+    a
+}
+
+/// Batch-команда передачи: `put -r "local" "remote"` / `get -r "remote" "local"`.
+pub fn transfer_batch(upload: bool, local: &Path, remote: &str) -> String {
+    let l = sftp_quote(&local.to_string_lossy());
+    let r = sftp_quote(remote);
+    if upload {
+        format!("put -r {l} {r}\n")
+    } else {
+        format!("get -r {r} {l}\n")
+    }
+}
+
+/// Выполняет batch `sftp` (stdin → команды); ошибка — первая строка stderr.
+fn sftp_run(sock: &Path, t: &SftpTarget, batch: &str) -> io::Result<()> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new("sftp")
+        .args(sftp_args(sock, t))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(batch.as_bytes())?;
+    }
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let msg = err.lines().next().unwrap_or("sftp transfer failed").trim();
+        return Err(io::Error::other(msg.to_string()));
+    }
+    Ok(())
+}
+
+/// Заливает локальный файл/директорию в точный удалённый путь `remote`.
+pub fn upload(sock: &Path, t: &SftpTarget, local: &Path, remote: &str) -> io::Result<()> {
+    sftp_run(sock, t, &transfer_batch(true, local, remote))
+}
+
+/// Скачивает удалённый файл/директорию в точный локальный путь `local`.
+pub fn download(sock: &Path, t: &SftpTarget, remote: &str, local: &Path) -> io::Result<()> {
+    sftp_run(sock, t, &transfer_batch(false, local, remote))
+}
+
+/// URL сессии для поля назначения: `sftp://[user@]host[:port]/path`.
+pub fn url(t: &SftpTarget, path: &str) -> String {
+    let port = t.port.map(|p| format!(":{p}")).unwrap_or_default();
+    let sep = if path.starts_with('/') { "" } else { "/" };
+    format!("sftp://{}{port}{sep}{path}", user_host(t))
 }
 
 /// Закрывает мастер-соединение (best-effort).

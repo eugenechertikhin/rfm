@@ -45,21 +45,37 @@ impl App {
     }
 
     pub(super) fn view_or_edit(&mut self, prog: &str, verb: &str) -> Action {
-        let path = match self.cursor_local_path() {
-            Some(p) => p,
-            None => {
-                self.status = format!("no file under cursor to {verb}");
-                return Action::Redraw;
-            }
+        let edit = verb == "edit";
+        // Локальный файл — как есть; иначе (SFTP/FTP/архив) — временная копия.
+        let (path, copy) = match self.cursor_local_path() {
+            Some(p) => (p, None),
+            None => match self.cursor_copy(edit) {
+                Ok(Some(c)) => (c.path.clone(), Some(c)),
+                Ok(None) => {
+                    self.status = format!("no file under cursor to {verb}");
+                    return Action::Redraw;
+                }
+                Err(e) => {
+                    self.status = format!("{verb}: {e}");
+                    return Action::Redraw;
+                }
+            },
         };
         if prog == "internal" {
-            if verb == "edit" {
+            if edit {
                 self.open_editor(&path);
             } else {
                 self.open_viewer(&path);
             }
+            if let Some(c) = copy {
+                self.attach_copy(c, edit);
+            }
             Action::Redraw
         } else {
+            if let Some(copy) = copy {
+                let before = copy.stamp();
+                self.pending_external = Some(remote_file::ExternalEdit { copy, edit, before });
+            }
             Action::RunShell(format!("{prog} {}", shell::shell_quote(&path.to_string_lossy())))
         }
     }
@@ -209,6 +225,7 @@ impl App {
             if let Some(mut nv) = load_viewer(&path, 0, false, wrap) {
                 nv.name = name;
                 if let Some(slot) = self.active_panel_mut().viewer.as_mut() {
+                    nv.copy = slot.copy.take(); // временная копия живёт, пока открыт просмотр
                     *slot = nv;
                 }
             }
@@ -245,6 +262,7 @@ impl App {
         if let Some(slot) = self.active_panel_mut().viewer.as_mut() {
             let mut nv = Viewer::from_memory(name, lines);
             nv.path = path;
+            nv.copy = slot.copy.take();
             nv.pretty = true;
             nv.wrap = wrap;
             *slot = nv;
@@ -445,6 +463,7 @@ pub(super) fn load_viewer(path: &std::path::Path, voff: usize, hex: bool, wrap: 
         pretty: false,
         find_input: None,
         find: None,
+        copy: None,
     })
 }
 
@@ -650,6 +669,8 @@ pub struct Viewer {
     pub find_input: Option<String>,
     /// Результат поиска по тексту: запрос + позиции совпадений + текущее.
     pub find: Option<ViewerFind>,
+    /// Временная копия (удалённый файл / запись архива); удаляется при закрытии.
+    pub copy: Option<crate::vfs::transfer::LocalCopy>,
 }
 
 /// Результат текстового поиска в просмотрщике.
@@ -680,6 +701,7 @@ impl Viewer {
             pretty: false,
             find_input: None,
             find: None,
+            copy: None,
         }
     }
 

@@ -248,3 +248,69 @@ fn builtin_config_archives_roundtrip() {
     assert_eq!(back.archives.len(), cfg.archives.len());
     assert_eq!(back.archives[0].name, "zip");
 }
+
+// ---- Извлечение записей ----
+
+#[test]
+fn extract_args_per_kind() {
+    let (f, o) = (Path::new("/a.zip"), Path::new("/t"));
+    let s = |v: Vec<String>| v.join(" ");
+    let (p, a) = extract_args("zip", f, "d/x.txt", false, o).unwrap();
+    assert_eq!((p.as_str(), s(a).as_str()), ("unzip", "-qo /a.zip d/x.txt -d /t"));
+    let (_, a) = extract_args("zip", f, "d", true, o).unwrap();
+    assert_eq!(s(a), "-qo /a.zip d/* -d /t");
+    let (p, a) = extract_args("tar", f, "./d", true, o).unwrap();
+    assert_eq!((p.as_str(), s(a).as_str()), ("tar", "-xf /a.zip -C /t -- ./d"));
+    let (p, a) = extract_args("7z", f, "d", true, o).unwrap();
+    assert_eq!((p.as_str(), s(a).as_str()), ("7z", "x -y -o/t /a.zip d d/*"));
+    let (p, a) = extract_args("rar", f, "x", false, o).unwrap();
+    assert_eq!((p.as_str(), s(a).as_str()), ("unrar", "x -o+ -inul /a.zip x /t/"));
+    assert!(extract_args("cpio", f, "x", false, o).is_none());
+}
+
+#[test]
+fn extract_unknown_kind_errors() {
+    let e = extract("cpio", Path::new("/a"), "x", false, Path::new("/t")).unwrap_err();
+    assert_eq!(e.to_string(), "extract is not supported for cpio");
+}
+
+#[test]
+fn extract_tar_file_and_dir() {
+    let root = std::env::temp_dir().join(format!("rfm_ext_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src/d/e")).unwrap();
+    std::fs::write(root.join("src/d/f.txt"), b"F").unwrap();
+    let tar = root.join("a.tar");
+    let ok = std::process::Command::new("tar")
+        .arg("-cf").arg(&tar).arg("-C").arg(root.join("src")).arg("d")
+        .status().unwrap().success();
+    assert!(ok);
+    let out = root.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    extract("tar", &tar, "d/f.txt", false, &out).unwrap();
+    assert_eq!(std::fs::read(out.join("d/f.txt")).unwrap(), b"F");
+    let out2 = root.join("out2");
+    std::fs::create_dir_all(&out2).unwrap();
+    extract("tar", &tar, "d", true, &out2).unwrap();
+    assert!(out2.join("d/e").is_dir() && out2.join("d/f.txt").is_file());
+    assert!(extract("tar", &tar, "nope", false, &out).is_err());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn remote_extract_cmd_quotes_every_arg() {
+    let cmd = remote_extract_cmd("tar", "/srv/a b.tar", "d/it's", false, "/tmp/r").unwrap();
+    assert_eq!(cmd, "tar '-xf' '/srv/a b.tar' '-C' '/tmp/r' '--' 'd/it'\\''s'");
+    let cmd = remote_extract_cmd("zip", "/srv/z.zip", "d", true, "/tmp/r").unwrap();
+    assert_eq!(cmd, "unzip '-qo' '/srv/z.zip' 'd/*' '-d' '/tmp/r'");
+    assert!(remote_extract_cmd("cpio", "/f", "m", false, "/o").is_none());
+}
+
+#[test]
+fn parse_listing_dispatches_by_kind() {
+    let tar = "-rw-r--r-- u/g 5 2024-01-02 03:04 dir/a.txt\n";
+    let items = parse_listing("tar", tar).unwrap();
+    assert_eq!(items.len(), 1);
+    let err = parse_listing("cpio", "").unwrap_err();
+    assert_eq!(err.to_string(), "no built-in parser for archive type 'cpio'");
+}

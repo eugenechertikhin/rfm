@@ -20,14 +20,6 @@ pub fn delete_path(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Копирует `src` внутрь директории `dest_dir`, сохраняя имя.
-pub fn copy_into(src: &Path, dest_dir: &Path) -> io::Result<()> {
-    let name = src.file_name().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "source has no file name")
-    })?;
-    copy_to(src, &dest_dir.join(name))
-}
-
 /// Копирует `src` в точный путь `dest` (переименование при копировании).
 pub fn copy_to(src: &Path, dest: &Path) -> io::Result<()> {
     copy_recursive(src, dest)
@@ -49,14 +41,6 @@ fn copy_recursive(src: &Path, dest: &Path) -> io::Result<()> {
         fs::copy(src, dest)?;
         Ok(())
     }
-}
-
-/// Перемещает `src` внутрь `dest_dir`, сохраняя имя.
-pub fn move_into(src: &Path, dest_dir: &Path) -> io::Result<()> {
-    let name = src.file_name().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "source has no file name")
-    })?;
-    move_to(src, &dest_dir.join(name))
 }
 
 /// Перемещает `src` в точный путь `dest` (переименование). Пытается `rename`;

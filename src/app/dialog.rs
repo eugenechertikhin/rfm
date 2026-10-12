@@ -1,6 +1,7 @@
 //! Модальные диалоги и файловые операции (create/copy/move/delete).
 
 use super::*;
+use crate::vfs::transfer::{self, Item, Loc};
 
 /// Действие кнопки диалога (то же, что её Ctrl-шорткат).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,15 +83,13 @@ impl App {
                         Action::Redraw
                     }
                     KeyCode::Char('s') if ctrl => match &op {
-                        PendingOp::Delete(paths) => {
-                            let mut cmd = String::from("sudo rm -rf --");
-                            for p in paths {
-                                cmd.push(' ');
-                                cmd.push_str(&crate::shell::shell_quote(&p.to_string_lossy()));
+                        PendingOp::Delete(items) => match self.sudo_delete_cmd(items) {
+                            Some(cmd) => {
+                                self.active_panel_mut().marked.clear();
+                                Action::RunShell(cmd)
                             }
-                            self.active_panel_mut().marked.clear();
-                            Action::RunShell(cmd)
-                        }
+                            None => Action::Redraw,
+                        },
                         _ => {
                             self.dialog = Some(Dialog::Confirm { message, op });
                             Action::None
@@ -269,48 +268,40 @@ impl App {
         let verb: &str;
 
         match op {
-            PendingOp::Delete(paths) => {
+            PendingOp::Delete(items) => {
                 verb = "Deleted";
-                for p in &paths {
-                    match ops::delete_path(p) {
+                for it in &items {
+                    match transfer::delete(it) {
                         Ok(()) => done += 1,
-                        Err(e) => errors.push(format!("{}: {e}", p.display())),
+                        Err(e) => errors.push(format!("{}: {e}", it.loc.display())),
                     }
                 }
             }
-            PendingOp::Copy(paths) => {
+            PendingOp::Copy(items) => {
                 verb = "Copied";
-                let Some((dest, into_dir)) = self.resolve_dest(arg, paths.len()) else {
+                let Some((dest, into_dir)) = self.resolve_dest(arg, items.len()) else {
                     return;
                 };
-                for p in &paths {
+                for it in &items {
                     // В существующую директорию — копируем внутрь (сохраняя имя);
                     // иначе (единственный источник) — в точный путь (переименование).
-                    let r = if into_dir {
-                        ops::copy_into(p, &dest)
-                    } else {
-                        ops::copy_to(p, &dest)
-                    };
-                    match r {
+                    let d = if into_dir { dest.join(&it.name()) } else { dest.clone() };
+                    match transfer::copy(it, &d) {
                         Ok(()) => done += 1,
-                        Err(e) => errors.push(format!("{}: {e}", p.display())),
+                        Err(e) => errors.push(format!("{}: {e}", it.loc.display())),
                     }
                 }
             }
-            PendingOp::Move(paths) => {
+            PendingOp::Move(items) => {
                 verb = "Moved";
-                let Some((dest, into_dir)) = self.resolve_dest(arg, paths.len()) else {
+                let Some((dest, into_dir)) = self.resolve_dest(arg, items.len()) else {
                     return;
                 };
-                for p in &paths {
-                    let r = if into_dir {
-                        ops::move_into(p, &dest)
-                    } else {
-                        ops::move_to(p, &dest)
-                    };
-                    match r {
+                for it in &items {
+                    let d = if into_dir { dest.join(&it.name()) } else { dest.clone() };
+                    match transfer::move_(it, &d) {
                         Ok(()) => done += 1,
-                        Err(e) => errors.push(format!("{}: {e}", p.display())),
+                        Err(e) => errors.push(format!("{}: {e}", it.loc.display())),
                     }
                 }
             }
@@ -324,7 +315,7 @@ impl App {
                     self.status = "empty directory name".to_string();
                     return;
                 }
-                match ops::create_dir(&base.join(name)) {
+                match transfer::mkdir(&base.join(name)) {
                     Ok(()) => done += 1,
                     Err(e) => errors.push(format!("{name}: {e}")),
                 }
@@ -356,45 +347,79 @@ impl App {
         self.reload_all();
     }
 
-    /// Разрешает назначение copy/move в `(путь, в_директорию)`.
-    /// Относительный путь считается от директории активной панели, `~` — от home.
+    /// Разбирает введённое назначение в локацию:
+    /// - `/abs`, `~`, `~/…` — локальная ФС;
+    /// - `sftp://…` / `ftp://…` — уже открытая сессия на тот же сервер (в любой панели);
+    ///   анонимный FTP (без логина) — и без открытой сессии;
+    /// - прочее (относительный путь) — от текущей директории активной панели, в её бэкенде.
+    pub(super) fn parse_dest(&self, s: &str) -> Result<Loc, String> {
+        if s.contains("://") {
+            if let Some(t) = crate::vfs::sftp::parse_url(s) {
+                let conn = self.panels.iter().find_map(|p| p.path.find_sftp(&t));
+                return match conn {
+                    Some(c) => Ok(Loc::Sftp(c, t.path)),
+                    None => Err(format!("no open session: {s}")),
+                };
+            }
+            if let Some(t) = crate::vfs::ftp::parse_url(s) {
+                let conn = self.panels.iter().find_map(|p| p.path.find_ftp(&t));
+                return match conn {
+                    Some(c) => Ok(Loc::Ftp(c, t.path)),
+                    None if t.user.is_none() => {
+                        let path = t.path.clone();
+                        Ok(Loc::Ftp(transfer::FtpConn { target: t, password: None }, path))
+                    }
+                    None => Err(format!("no open session: {s}")),
+                };
+            }
+            if s.starts_with("http://") || s.starts_with("https://") {
+                return Err("http is read-only".to_string());
+            }
+            return Err(format!("unsupported destination: {s}"));
+        }
+        if s == "~" {
+            return dirs::home_dir().map(Loc::Local).ok_or_else(|| "no home directory".to_string());
+        }
+        if let Some(rest) = s.strip_prefix("~/") {
+            return dirs::home_dir()
+                .map(|h| Loc::Local(h.join(rest)))
+                .ok_or_else(|| "no home directory".to_string());
+        }
+        if s.starts_with('/') {
+            return Ok(Loc::Local(PathBuf::from(s)));
+        }
+        self.active_panel().path.cwd_loc().map(|base| base.join(s))
+    }
+
+    /// Разрешает назначение copy/move в `(локация, в_директорию)` (см. `parse_dest`).
     /// Существующая директория → копируем/переносим внутрь (`true`). Иначе, если
     /// источник один → это точный целевой путь (переименование, `false`); для
     /// нескольких источников путь-не-директория — ошибка.
-    pub(super) fn resolve_dest(&mut self, arg: Option<PathBuf>, count: usize) -> Option<(PathBuf, bool)> {
+    pub(super) fn resolve_dest(&mut self, arg: Option<PathBuf>, count: usize) -> Option<(Loc, bool)> {
         let raw = match arg {
-            Some(p) if !p.as_os_str().is_empty() => p,
+            Some(p) if !p.as_os_str().is_empty() => p.to_string_lossy().into_owned(),
             _ => {
                 self.status = "no destination".to_string();
                 return None;
             }
         };
-        // Разрешаем относительно директории активной панели (или home для `~`).
-        let s = raw.to_string_lossy();
-        let resolved = if s == "~" {
-            dirs::home_dir().unwrap_or_else(|| raw.clone())
-        } else if let Some(rest) = s.strip_prefix("~/") {
-            match dirs::home_dir() {
-                Some(h) => h.join(rest),
-                None => raw.clone(),
-            }
-        } else if raw.is_absolute() {
-            raw.clone()
-        } else {
-            match self.active_panel().path.local_path() {
-                Some(base) => base.join(&raw),
-                None => {
-                    self.status = "cannot resolve destination here".to_string();
-                    return None;
-                }
+        let dest = match self.parse_dest(&raw) {
+            Ok(d) => d,
+            Err(e) => {
+                self.status = e;
+                return None;
             }
         };
-        if resolved.is_dir() {
-            Some((resolved, true))
+        if matches!(dest, Loc::Archive(..)) {
+            self.status = "archive is read-only".to_string();
+            return None;
+        }
+        if transfer::is_dir(&dest) {
+            Some((dest, true))
         } else if count == 1 {
-            Some((resolved, false))
+            Some((dest, false))
         } else {
-            self.status = format!("destination is not a directory: {}", resolved.display());
+            self.status = format!("destination is not a directory: {}", dest.display());
             None
         }
     }
@@ -407,13 +432,24 @@ impl App {
         }
     }
 
-    pub(super) fn op_mkdir(&mut self) {
-        let base = match self.active_panel().path.local_path() {
-            Some(p) => p.to_path_buf(),
-            None => {
-                self.status = "cannot create directory here".to_string();
-                return;
+    /// Локация активной панели, пригодная для записи; иначе — статус и `None`.
+    fn writable_cwd(&mut self) -> Option<Loc> {
+        match self.active_panel().path.cwd_loc() {
+            Ok(Loc::Archive(..)) => {
+                self.status = "archive is read-only".to_string();
+                None
             }
+            Ok(l) => Some(l),
+            Err(e) => {
+                self.status = e;
+                None
+            }
+        }
+    }
+
+    pub(super) fn op_mkdir(&mut self) {
+        let Some(base) = self.writable_cwd() else {
+            return;
         };
         self.dialog = Some(Dialog::Input {
             prompt: "Create directory:".to_string(),
@@ -422,30 +458,10 @@ impl App {
         });
     }
 
-    /// Команда `sudo cp/mv` для copy/move (запускается на экране shell).
-    /// Источники — абсолютные пути целей; `dest` — как введено (относительно cwd
-    /// активной панели, где и выполнится команда). `None` — op не поддерживает sudo
-    /// или пустой dest.
-    pub(super) fn sudo_op_cmd(&self, op: &PendingOp, dest: &str) -> Option<String> {
-        if dest.trim().is_empty() {
-            return None;
-        }
-        let (tool, paths) = match op {
-            PendingOp::Copy(p) => ("cp -r", p),
-            PendingOp::Move(p) => ("mv", p),
-            _ => return None,
-        };
-        let mut cmd = format!("sudo {tool} --");
-        for p in paths {
-            cmd.push(' ');
-            cmd.push_str(&crate::shell::shell_quote(&p.to_string_lossy()));
-        }
-        cmd.push(' ');
-        cmd.push_str(&crate::shell::shell_quote(dest));
-        Some(cmd)
-    }
-
     pub(super) fn op_delete(&mut self) {
+        if self.writable_cwd().is_none() {
+            return;
+        }
         let t = self.targets();
         if t.is_empty() {
             self.status = "nothing to delete".to_string();
@@ -458,6 +474,10 @@ impl App {
     }
 
     pub(super) fn op_copy(&mut self) {
+        if let Err(e) = self.active_panel().path.cwd_loc() {
+            self.status = e;
+            return;
+        }
         let t = self.targets();
         if t.is_empty() {
             self.status = "nothing to copy".to_string();
@@ -472,6 +492,9 @@ impl App {
     }
 
     pub(super) fn op_move(&mut self) {
+        if self.writable_cwd().is_none() {
+            return;
+        }
         let t = self.targets();
         if t.is_empty() {
             self.status = "nothing to move".to_string();
@@ -485,34 +508,36 @@ impl App {
         });
     }
 
-    pub(super) fn targets(&self) -> Vec<PathBuf> {
+    /// Элементы операции: помеченные, а без пометок — запись под курсором (`..` — нет).
+    pub(super) fn targets(&self) -> Vec<Item> {
         let panel = self.active_panel();
-        let Some(base) = panel.path.local_path() else {
+        let Ok(base) = panel.path.cwd_loc() else {
             return Vec::new();
         };
-        if !panel.marked.is_empty() {
-            let mut v: Vec<PathBuf> = panel.marked.iter().map(|n| base.join(n)).collect();
-            v.sort();
-            v
-        } else if !panel.entries.is_empty() {
-            let e = &panel.entries[panel.cursor];
-            if e.name == ".." {
-                Vec::new()
-            } else {
-                vec![base.join(&e.name)]
+        let item = |name: &str| {
+            let is_dir = panel.entries.iter().any(|e| e.name == name && e.is_dir());
+            Item {
+                loc: base.join(name),
+                is_dir,
             }
+        };
+        if !panel.marked.is_empty() {
+            let mut names: Vec<&String> = panel.marked.iter().collect();
+            names.sort();
+            names.into_iter().map(|n| item(n)).collect()
         } else {
-            Vec::new()
+            match panel.entries.get(panel.cursor) {
+                Some(e) if e.name != ".." => vec![item(&e.name)],
+                _ => Vec::new(),
+            }
         }
     }
 
+    /// Префилл назначения: директория соседней панели (удалённая — URL сессии).
     pub(super) fn dest_default(&self) -> String {
-        if self.panels.len() > 1 {
-            let idx = (self.active + 1) % self.panels.len();
-            self.panels[idx].path.display()
-        } else {
-            self.active_panel().path.display()
-        }
+        let idx = if self.panels.len() > 1 { (self.active + 1) % self.panels.len() } else { self.active };
+        let path = &self.panels[idx].path;
+        path.remote_url().unwrap_or_else(|| path.display())
     }
 }
 

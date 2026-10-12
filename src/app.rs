@@ -8,9 +8,11 @@ mod editor;
 mod editor_find;
 mod mouse;
 mod panel;
+mod remote_file;
 mod search;
 mod select;
 mod settings;
+mod sudo;
 mod viewer;
 pub use cmdline::CmdLine;
 pub use complete::Completion;
@@ -32,10 +34,10 @@ use ratatui::widgets::ListState;
 
 use crate::config::{self, Config, FileListView, PanelLayout, PauseMode, SaveMode};
 use crate::history::History;
-use crate::ops;
 use crate::persist::{self, PanelState};
 use crate::shell::{self, ParsedCommand};
 use crate::theme::Theme;
+use crate::vfs::transfer::{ArchiveSrc, Loc, SftpConn};
 use crate::vfs::{VfsEntry, VfsPath};
 
 /// Подсказки which-key для аккордов `Ctrl+x` (полноценный вид — этап 4).
@@ -80,11 +82,11 @@ pub enum Action {
 
 /// Отложенная файловая операция (выполняется после подтверждения диалога).
 pub enum PendingOp {
-    Delete(Vec<PathBuf>),
-    Copy(Vec<PathBuf>),
-    Move(Vec<PathBuf>),
-    /// Создать директорию в указанной базовой директории (имя — из ввода).
-    MkDir(PathBuf),
+    Delete(Vec<crate::vfs::transfer::Item>),
+    Copy(Vec<crate::vfs::transfer::Item>),
+    Move(Vec<crate::vfs::transfer::Item>),
+    /// Создать директорию в указанной базовой локации (имя — из ввода).
+    MkDir(crate::vfs::transfer::Loc),
     /// Подключиться к FTP с введённым паролем (пароль приходит как «аргумент» диалога).
     FtpConnect(crate::vfs::ftp::FtpTarget),
     /// Пометить (`true`) / снять пометку (`false`) по маске (маска — из ввода).
@@ -186,6 +188,8 @@ pub struct App {
     pub editor_search: Option<String>,
     /// Последняя строка замены в редакторе (`Ctrl+r`; только в памяти).
     pub editor_replace: Option<String>,
+    /// Внешний view/edit временной копии удалённого файла — ждёт возврата из shell.
+    pending_external: Option<remote_file::ExternalEdit>,
 }
 
 impl App {
@@ -264,6 +268,7 @@ impl App {
             last_mask: None,
             editor_search: None,
             editor_replace: None,
+            pending_external: None,
         }
     }
 
@@ -280,8 +285,13 @@ impl App {
                     dir: d.to_path_buf(),
                     columns: p.columns,
                     view_override: p.view_override,
-                    viewer: p.viewer.as_ref().map(|v| (v.path.clone(), v.voff)),
-                    editor: p.editor.as_ref().map(|e| (e.path.clone(), e.cur_line, e.cur_col)),
+                    // Временные копии (удалённые файлы/архивы) не восстанавливаем.
+                    viewer: p.viewer.as_ref().filter(|v| v.copy.is_none()).map(|v| (v.path.clone(), v.voff)),
+                    editor: p
+                        .editor
+                        .as_ref()
+                        .filter(|e| e.copy.is_none())
+                        .map(|e| (e.path.clone(), e.cur_line, e.cur_col)),
                 })
             })
             .collect();
@@ -808,41 +818,73 @@ impl App {
             self.panels_dirty = true;
             return Action::Redraw;
         }
-        // Действия над файлом — только на локальном слое (внутри архива/сессии файлы
-        // не извлекаем и локально не запускаем).
+        // Запуск `+x` — только на локальном слое (внутри архива/сессии файлы локально
+        // не запускаем). Архив открывается локально и на SFTP (листинг — на сервере).
+        let cfg = crate::vfs::archive::match_archive(&entry.name, &self.config.archives).cloned();
         if let Some(dir) = self.active_panel().path.local_path() {
             if entry.executable {
                 return Action::RunShell(shell::shell_quote(&format!("./{}", entry.name)));
             }
             // Архив — открыть как директорию.
             let file = dir.join(&entry.name);
-            if let Some(cfg) =
-                crate::vfs::archive::match_archive(&entry.name, &self.config.archives).cloned()
-            {
+            if let Some(cfg) = cfg {
                 self.open_archive(&file, &cfg);
                 return Action::Redraw;
             }
+        } else if let Some(cfg) = cfg {
+            match self.active_panel().path.cwd_loc().map(|l| l.join(&entry.name)) {
+                Ok(Loc::Sftp(conn, file)) => {
+                    self.open_remote_archive(conn, &file, &cfg);
+                    return Action::Redraw;
+                }
+                Ok(Loc::Ftp(..)) => {
+                    self.status = "archive is not supported on ftp".to_string();
+                    return Action::Redraw;
+                }
+                _ => {}
+            }
         }
         Action::None
+    }
+
+    /// Открывает архив на SFTP-сервере: листинг выполняется там, архив не скачивается.
+    fn open_remote_archive(&mut self, conn: SftpConn, file: &str, cfg: &crate::config::ArchiveConfig) {
+        match crate::vfs::archive::open_remote(&conn.sock, &conn.target, file, cfg) {
+            Ok(items) => {
+                let src = ArchiveSrc {
+                    file: PathBuf::from(file),
+                    kind: cfg.name.clone(),
+                    remote: Some(conn),
+                };
+                self.push_archive_layer(src, items);
+            }
+            Err(e) => self.status = format!("archive: {e}"),
+        }
+    }
+
+    /// Push слоя архива в активную панель и перечитывание списка.
+    fn push_archive_layer(&mut self, src: ArchiveSrc, items: Vec<crate::vfs::archive::ArchiveItem>) {
+        {
+            let panel = self.active_panel_mut();
+            panel.path.push_archive(src, items);
+            panel.cursor = 0;
+            panel.marked.clear();
+            panel.expanded.clear();
+        }
+        self.reload();
+        self.panels_dirty = true;
     }
 
     /// Открывает архив в активной панели: шеллит листинг, парсит, push’ит слой `Archive`.
     fn open_archive(&mut self, file: &std::path::Path, cfg: &crate::config::ArchiveConfig) {
         match crate::vfs::archive::open(file, cfg) {
             Ok(items) => {
-                let label = file
-                    .file_name()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                {
-                    let panel = self.active_panel_mut();
-                    panel.path.push_archive(label, items);
-                    panel.cursor = 0;
-                    panel.marked.clear();
-                    panel.expanded.clear();
-                }
-                self.reload();
-                self.panels_dirty = true;
+                let src = ArchiveSrc {
+                    file: file.to_path_buf(),
+                    kind: cfg.name.clone(),
+                    remote: None,
+                };
+                self.push_archive_layer(src, items);
             }
             Err(e) => self.status = format!("archive: {e}"),
         }
@@ -991,7 +1033,9 @@ impl App {
         }
         match crate::vfs::sftp::list(&sock, &target, &target.path) {
             Ok(_) => {
-                let root = target.path.clone();
+                // Корень — абсолютным путём (`.` = home), чтобы URL сессии был однозначным.
+                let root = crate::vfs::sftp::realpath(&sock, &target, &target.path)
+                    .unwrap_or_else(|_| target.path.clone());
                 {
                     let panel = self.active_panel_mut();
                     panel.path.push_sftp(target, sock, root);

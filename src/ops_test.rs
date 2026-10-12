@@ -49,7 +49,7 @@ fn copy_file_into_dir() {
     let dst = root.join("dst");
     fs::create_dir_all(&dst).unwrap();
 
-    copy_into(&src, &dst).unwrap();
+    copy_to(&src, &dst.join("a.txt")).unwrap();
     assert_eq!(fs::read(dst.join("a.txt")).unwrap(), b"hello");
     assert!(src.exists()); // копирование не удаляет источник
 
@@ -65,7 +65,7 @@ fn copy_dir_recursively() {
     let dst = root.join("dst");
     fs::create_dir_all(&dst).unwrap();
 
-    copy_into(&src, &dst).unwrap();
+    copy_to(&src, &dst.join("tree")).unwrap();
     assert_eq!(fs::read(dst.join("tree/a/b/c.txt")).unwrap(), b"deep");
 
     fs::remove_dir_all(&root).ok();
@@ -79,7 +79,7 @@ fn move_file_into_dir() {
     let dst = root.join("dst");
     fs::create_dir_all(&dst).unwrap();
 
-    move_into(&src, &dst).unwrap();
+    move_to(&src, &dst.join("m.txt")).unwrap();
     assert!(!src.exists());
     assert_eq!(fs::read(dst.join("m.txt")).unwrap(), b"z");
 

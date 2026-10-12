@@ -1174,7 +1174,7 @@ fn move_relative_name_renames_in_current_dir() {
     app.active_panel_mut().path = crate::vfs::VfsPath::local(dir.clone());
 
     // move "123" → относительное "321" (не существующая директория) = переименование.
-    app.execute_op(PendingOp::Move(vec![dir.join("123")]), Some(std::path::PathBuf::from("321")));
+    app.execute_op(PendingOp::Move(vec![crate::vfs::transfer::Item::local(dir.join("123"))]), Some(std::path::PathBuf::from("321")));
     assert!(!dir.join("123").exists());
     assert!(dir.join("321").exists());
     std::fs::remove_dir_all(&dir).ok();
@@ -1191,7 +1191,7 @@ fn move_multiple_to_nondir_errors() {
 
     // Несколько источников + цель-не-директория → ошибка, файлы на месте.
     app.execute_op(
-        PendingOp::Move(vec![dir.join("a"), dir.join("b")]),
+        PendingOp::Move(vec![crate::vfs::transfer::Item::local(dir.join("a")), crate::vfs::transfer::Item::local(dir.join("b"))]),
         Some(std::path::PathBuf::from("newname")),
     );
     assert!(app.status.contains("not a directory"));
@@ -1204,7 +1204,7 @@ fn dialog_input_ctrl_line_editing() {
     let dialog = |s: &str| Dialog::Input {
         prompt: "Copy to:".to_string(),
         input: CmdLine::from_str(s),
-        op: PendingOp::MkDir(std::path::PathBuf::from("/tmp")),
+        op: PendingOp::MkDir(crate::vfs::transfer::Loc::Local(std::path::PathBuf::from("/tmp"))),
     };
     let text = |app: &App| match app.dialog.as_ref() {
         Some(Dialog::Input { input, .. }) => input.text(),

@@ -41,6 +41,8 @@ pub struct Editor {
     /// Выделение строк (`Shift+↑/↓`): (якорь, конец). Движение без Shift его
     /// не снимает — блок копируется/переносится к курсору (`Ctrl+x c` / `Ctrl+x m`).
     pub sel: Option<(usize, usize)>,
+    /// Временная копия удалённого файла: после записи на диск заливается обратно.
+    pub copy: Option<crate::vfs::transfer::LocalCopy>,
 }
 
 impl Editor {
@@ -74,6 +76,7 @@ impl Editor {
             dirty: false,
             trailing_newline,
             sel: None,
+            copy: None,
         })
     }
 
@@ -409,7 +412,12 @@ impl App {
     fn editor_save(&mut self) -> bool {
         let res = match self.active_panel_mut().editor.as_mut() {
             Some(e) => {
-                let r = e.save();
+                // Удалённый файл: пишем временную копию и заливаем её на место;
+                // при ошибке заливки правки остаются несохранёнными (`*`).
+                let r = e.save().map_err(|err| format!("save failed: {err}")).and_then(|()| match &e.copy {
+                    Some(c) => c.upload().map_err(|err| format!("upload failed: {err}")),
+                    None => Ok(()),
+                });
                 if r.is_ok() {
                     e.dirty = false;
                 }
@@ -423,7 +431,7 @@ impl App {
                 true
             }
             Err(e) => {
-                self.status = format!("edit: save failed: {e}");
+                self.status = format!("edit: {e}");
                 false
             }
         }

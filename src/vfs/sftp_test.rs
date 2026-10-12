@@ -81,3 +81,45 @@ fn master_args_include_socket_and_port() {
     assert!(args.windows(2).any(|w| w[0] == "-p" && w[1] == "2200"));
     assert_eq!(args.last().unwrap(), "u@h");
 }
+
+// ---- Команды операций по мастер-сокету ----
+
+fn tgt(port: Option<u16>) -> SftpTarget {
+    SftpTarget { user: Some("u".into()), host: "h".into(), port, path: "/".into() }
+}
+
+#[test]
+fn ssh_args_use_socket_batchmode_and_port() {
+    let a = ssh_args(Path::new("/s"), &tgt(Some(2222)), "ls");
+    assert_eq!(a, ["-S", "/s", "-o", "BatchMode=yes", "-p", "2222", "u@h", "ls"]);
+    let a = ssh_args(Path::new("/s"), &tgt(None), "ls");
+    assert!(!a.contains(&"-p".to_string()));
+}
+
+#[test]
+fn remote_cmd_quotes_paths() {
+    assert_eq!(remote_cmd("mv", &["/a b", "it's"]), r"mv -- '/a b' 'it'\''s'");
+    assert_eq!(remote_cmd("mkdir -p", &["/x"]), "mkdir -p -- '/x'");
+}
+
+#[test]
+fn sftp_batch_quoting_and_direction() {
+    assert_eq!(sftp_quote(r#"a "b"\c"#), r#""a \"b\"\\c""#);
+    assert_eq!(transfer_batch(true, Path::new("/l f"), "/r"), "put -r \"/l f\" \"/r\"\n");
+    assert_eq!(transfer_batch(false, Path::new("/l"), "/r x"), "get -r \"/r x\" \"/l\"\n");
+}
+
+#[test]
+fn sftp_args_use_control_path_and_capital_p() {
+    let a = sftp_args(Path::new("/s"), &tgt(Some(22)));
+    assert_eq!(a, ["-q", "-b", "-", "-o", "ControlPath=/s", "-P", "22", "u@h"]);
+}
+
+#[test]
+fn url_formats_session() {
+    assert_eq!(url(&tgt(None), "/var/x"), "sftp://u@h/var/x");
+    assert_eq!(url(&tgt(Some(2222)), "rel"), "sftp://u@h:2222/rel");
+    // URL разбирается обратно в ту же цель
+    let t = parse_url(&url(&tgt(Some(2222)), "/var")).unwrap();
+    assert_eq!((t.port, t.path.as_str()), (Some(2222), "/var"));
+}
