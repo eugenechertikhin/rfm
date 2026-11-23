@@ -27,6 +27,7 @@ install -Dm755 target/release/%{name} %{buildroot}%{_bindir}/%{name}
 install -Dm644 README.md %{buildroot}%{_docdir}/%{name}/README.md
 
 %files
+%license LICENSE
 %{_bindir}/%{name}
 %{_docdir}/%{name}/README.md
 

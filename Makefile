@@ -43,6 +43,7 @@ debian: release
 	rm -rf $(BUILD)/debian
 	install -Dm755 target/release/$(NAME) $(BUILD)/debian/pkg/usr/bin/$(NAME)
 	install -Dm644 README.md $(BUILD)/debian/pkg/usr/share/doc/$(NAME)/README.md
+	install -Dm644 packaging/debian/copyright $(BUILD)/debian/pkg/usr/share/doc/$(NAME)/copyright
 	mkdir -p $(BUILD)/debian/pkg/DEBIAN
 	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@ARCH@/$(DEB_ARCH)/' \
 		packaging/debian/control.in > $(BUILD)/debian/pkg/DEBIAN/control
