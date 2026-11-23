@@ -90,9 +90,11 @@ fn cmdline_kill_word_stops_at_space() {
 }
 
 #[test]
-fn ctrl_q_quits() {
+fn ctrl_q_does_nothing() {
+    // Выход — только `Ctrl+x q`; одиночный Ctrl+q не выходит и не печатает.
     let mut app = app_with(vec![]);
-    assert_eq!(app.handle_key(ctrl('q')), Action::Quit);
+    assert_eq!(app.handle_key(ctrl('q')), Action::None);
+    assert_eq!(app.cmdline.text(), "");
 }
 
 #[test]

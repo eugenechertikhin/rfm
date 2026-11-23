@@ -445,7 +445,6 @@ impl App {
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
         match key.code {
-            KeyCode::Char('q') if ctrl => Action::Quit,
             KeyCode::Char('s') if ctrl => {
                 self.search = Some(SearchState {
                     query: String::new(),

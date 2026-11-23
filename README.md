@@ -48,7 +48,6 @@ No DOS-style function-key shortcuts (F1, …) — only Ctrl shortcuts, to reuse 
 | `Ctrl+p`/`Ctrl+n`, `Ctrl+g` | command history prev/next, history search |
 | `Shift+Tab` | filename completion |
 | `Ctrl+o` | show shell screen |
-| `Ctrl+q` | quit |
 
 Full list: `Ctrl+x h` inside the app.
 
