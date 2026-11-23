@@ -126,16 +126,29 @@ fn restore_child_signals(cmd: &mut ProcessCommand) {
     }
 }
 
+/// Эхо команды на экране shell перед её выполнением: пустая строка-разделитель,
+/// затем промпт rfm (`login@host $ ` / `root@host # `) и сама команда.
+pub fn command_echo(prompt: &str, cmd: &str) -> String {
+    format!("\r\n{prompt}{cmd}\r\n")
+}
+
 /// Выполняет команду в `cwd` через `$SHELL -c`, вернув экран shell как был.
+/// Перед запуском печатает эхо команды с промптом `prompt` (см. [`command_echo`]).
 /// Пауза после команды — по `pause`. NB: `OnOutput` пока трактуется как `Always`
 /// (при наследуемом tty вывод не перехватываем).
 pub fn run_command<B: Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     cwd: &Path,
+    prompt: &str,
     cmd: &str,
     pause: PauseMode,
 ) -> io::Result<()> {
     leave_tui()?;
+    {
+        let mut out = io::stdout();
+        write!(out, "{}", command_echo(prompt, cmd))?;
+        out.flush()?;
+    }
 
     // Игнорируем Ctrl+C/Ctrl+\ у себя на время команды (и паузы после неё).
     let _signals = SignalGuard::ignore();

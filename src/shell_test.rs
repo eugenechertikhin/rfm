@@ -61,3 +61,18 @@ fn sigint_ignored_by_parent_default_in_child_restored_on_drop() {
     };
     assert_eq!(before, after);
 }
+
+#[test]
+fn command_echo_has_separator_prompt_and_command() {
+    assert_eq!(command_echo("user@box $ ", "ls -la"), "\r\nuser@box $ ls -la\r\n");
+    assert_eq!(command_echo("root@box # ", "id"), "\r\nroot@box # id\r\n");
+}
+
+#[test]
+fn command_echo_keeps_command_verbatim() {
+    // Кавычки/спецсимволы — как будут выполнены (напр. запуск `+x` и sudo).
+    assert_eq!(
+        command_echo("u@h $ ", "'./my script.sh'"),
+        "\r\nu@h $ './my script.sh'\r\n"
+    );
+}

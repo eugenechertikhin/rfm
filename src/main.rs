@@ -84,7 +84,7 @@ fn run<B: ratatui::backend::Backend<Error = io::Error>>(
             }
             Action::RunShell(cmd) => {
                 if let Some(cwd) = app.cwd() {
-                    shell::run_command(terminal, &cwd, &cmd, app.config.pause_after_command)?;
+                    shell::run_command(terminal, &cwd, &app.prompt, &cmd, app.config.pause_after_command)?;
                 }
                 app.after_shell();
                 // Возврат из alt-screen делает known-буфер невалидным — полный сброс.
