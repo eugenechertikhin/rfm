@@ -1,6 +1,6 @@
 [package]
 name = "rfm"
-version = "0.1.6"
+version = "0.1.15"
 edition = "2021"
 description = "rfm — a lightweight terminal file manager"
 license = "GPL-3.0-or-later"

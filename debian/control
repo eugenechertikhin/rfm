@@ -1,0 +1,33 @@
+Source: rfm
+Section: utils
+Maintainer: Eugene Chertikhin <e.chertikhin@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-cargo,
+               cargo:native,
+               rustc:native,
+               libstd-rust-dev,
+               librust-crossterm-0.29+default-dev,
+               librust-dirs-6+default-dev,
+               librust-libc-0.2+default-dev,
+               librust-ratatui-0.30+default-dev,
+               librust-serde-1+default-dev,
+               librust-serde-1+derive-dev,
+               librust-toml-0.8+default-dev,
+               librust-unicode-width-0.2+default-dev
+Standards-Version: 4.7.2
+Homepage: https://github.com/eugenechertikhin/rfm
+Vcs-Browser: https://github.com/eugenechertikhin/rfm
+Vcs-Git: https://github.com/eugenechertikhin/rfm.git
+
+Package: rfm
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Recommends: openssh-client, curl
+Suggests: unzip, p7zip-full, unrar
+Static-Built-Using: ${cargo:Static-Built-Using}
+X-Cargo-Built-Using: ${cargo:X-Cargo-Built-Using}
+Description: lightweight terminal file manager
+ Panel-based console file manager written in Rust: multiple panels,
+ command line with real shell screen, archives and remote locations
+ (sftp/ftp/http) as virtual file systems, built-in viewer and editor,
+ mouse support and configurable color themes.

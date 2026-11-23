@@ -1,3 +1,11 @@
 /target
 /build
 
+/debian/.debhelper/
+/debian/cargo_home/
+/debian/cargo_registry/
+/debian/rfm/
+/debian/files
+/debian/*.substvars
+/debian/debhelper-build-stamp
+/debian/Cargo.lock.upstream

@@ -1,0 +1,315 @@
+.TH RFM 1 "2026-11-24" "rfm 0.1.15" "User Commands"
+.SH NAME
+rfm \- lightweight terminal file manager
+.SH SYNOPSIS
+.B rfm
+.SH DESCRIPTION
+.B rfm
+is a panel-based console file manager for unix-like systems.
+It shows one or more file panels (side by side or stacked), a command line
+at the bottom of the screen and a status line.
+.PP
+Typing goes straight into the command line;
+.B Enter
+runs the command with
+.B $SHELL \-c
+on the real shell screen.
+The panels run on the terminal's alternate screen buffer, so the shell
+screen and its scrollback stay exactly as they were before
+.B rfm
+started.
+Before the command output,
+.B rfm
+echoes its prompt and the command (for example
+.IR "user@host $ ls \-la" ).
+.PP
+A panel can show a local directory, the contents of an archive (zip, tar,
+7z, rar, ... \(em listed with commands from the configuration) or a remote
+location: SFTP (via the OpenSSH ControlMaster), FTP (via
+.BR curl )
+and HTTP(S) autoindex pages (read-only).
+Files can be copied and moved between local and remote panels, archives and HTTP locations are read-only.
+.PP
+.B rfm
+has a built-in file viewer (lazy reading, hex dump, wrap, text search, JSON/XML prettify) and a simple built-in editor.
+External programs can be configured instead.
+.PP
+There are no function-key shortcuts; all actions use Ctrl keys and the
+.B Ctrl+x
+prefix, in the style of the shell and Emacs.
+.SH OPTIONS
+.B rfm
+takes no command-line options.
+.SH KEYS
+In the key names below
+.B c\-x
+means
+.BR Ctrl+x ,
+and
+.B c\-x n
+means
+.B Ctrl+x
+followed by
+.BR n .
+The full list is available inside the program with
+.BR "c\-x h" .
+.SS Panels
+.TP 25
+.B Tab
+Switch to the next panel.
+.TP
+.B Up, Down
+Move the file cursor (arrows never edit the command line).
+.TP
+.B Home, End, PgUp, PgDn
+Start / end of the list, 10 entries up / down.
+.TP
+.B Enter
+With an empty command line: enter a directory, run an executable file as
+.IR ./name ,
+open an archive as a directory.
+Otherwise run the typed command.
+.TP
+.B c\-t
+Mark the file under the cursor.
+.TP
+.B Shift+Up, Shift+Down
+Mark the file and move the cursor.
+.TP
+.B + \fR/\fP \-
+Select / unselect entries by a glob mask (only with an empty command line).
+.TP
+.B c\-s
+Incremental search in the file list.
+.TP
+.B c\-r
+Reload the directory.
+.TP
+.B c\-o
+Show the shell screen; any key returns.
+.TP
+.B c\-l
+Redraw the screen.
+.SS Command line
+.TP 25
+.B c\-a, c\-e
+Start / end of line.
+.TP
+.B c\-b, c\-f
+Character back / forward.
+.TP
+.B c\-u, c\-k
+Kill to start / end of line.
+.TP
+.B c\-w
+Delete the word before the cursor.
+.TP
+.B Esc
+Clear the command line.
+.TP
+.B c\-v
+Insert the name under the file cursor, single-quoted.
+.TP
+.B c\-p, c\-n
+Previous / next command from the history.
+.TP
+.B c\-g
+Search the command history.
+.TP
+.B Shift+Tab
+Complete a file name.
+.SS Operations (c\-x)
+Copy, move and delete apply to the marked files, or to the file under the
+cursor when nothing is marked.
+.TP 25
+.B c\-x n
+Create a directory.
+.TP
+.B c\-x c, c\-x m
+Copy / move.
+The destination defaults to the directory of the neighbour panel.
+.TP
+.B c\-x d
+Delete.
+.TP
+.B c\-x v, c\-x V
+View the file; the uppercase key uses the whole panel area.
+.TP
+.B c\-x e, c\-x E
+Edit the file; the uppercase key uses the whole panel area.
+.TP
+.B c\-x s
+Sort: then
+.B s
+size,
+.B d
+date,
+.B n
+name,
+.B f
+directories first.
+.TP
+.B c\-x p
+Panels: then
+.B c
+create,
+.B x
+close.
+.TP
+.B c\-x o
+Start an interactive shell in the current directory;
+.B exit
+or
+.B c\-d
+returns.
+.TP
+.B c\-x x
+Settings.
+.TP
+.B c\-x h
+Help.
+.TP
+.B c\-x q
+Quit.
+.PP
+The copy, move and delete dialogs also offer running the operation with
+.BR sudo (8)
+.RB ( c\-s ).
+.SS Viewer
+.TP 25
+.B Up, Down, Left, Right
+Scroll.
+.TP
+.B Space, PgUp, PgDn
+Page down / up.
+.TP
+.B Home, End
+Start / end of file.
+.TP
+.B d
+Toggle hex dump.
+.TP
+.B w
+Toggle line wrap.
+.TP
+.B p
+Prettify JSON/XML (when no search is active).
+.TP
+.B /
+Search; then
+.B n
+/
+.B p
+next / previous match.
+.TP
+.B c\-x h
+Viewer help.
+.TP
+.B q, Esc
+Close the viewer.
+.SS Editor
+The file is edited in memory and written only on save.
+.TP 25
+.B c\-s, c\-n, c\-p
+Search, next / previous match.
+.TP
+.B c\-r
+Search and replace.
+.TP
+.B c\-y
+Delete the current line.
+.TP
+.B Shift+Up, Shift+Down
+Select whole lines;
+.B c\-x c
+/
+.B c\-x m
+copy / move them before the cursor line.
+.TP
+.B c\-x s, c\-x x
+Save / save and close.
+.TP
+.B Esc, c\-x q
+Close without saving (asks if the file was modified).
+.TP
+.B c\-x h
+Editor help.
+.SS Mouse
+Click selects a panel and a file, double click acts like
+.BR Enter ,
+the wheel scrolls the list, the viewer, the editor and the help windows.
+.SH COMMANDS
+The
+.B cd
+command typed in the command line is handled by
+.B rfm
+itself:
+.TP
+.B cd \fR[\fIpath\fR]
+Change the directory of the active panel; without an argument go to
+.IR ~ .
+If
+.I path
+is an archive, open it as a directory.
+.TP
+.B cd sftp://\fR[\fIuser\fB@\fR]\fIhost\fR[\fB:\fIport\fR]\fB/\fIpath\fR
+Open a remote directory over SFTP.
+The password and host key questions are asked by
+.BR ssh (1)
+on the shell screen.
+.TP
+.B cd ftp://\fR[\fIuser\fB@\fR]\fIhost\fR[\fB:\fIport\fR]\fB/\fIpath\fR
+Open an FTP directory; the password is asked once in a dialog.
+Without a user name anonymous access is used.
+.TP
+.B cd http://\fIhost\fB/\fIpath\fR, \fBcd https://\fR...
+Browse an HTTP autoindex page (read-only).
+.PP
+.B ..
+at the root of an archive or a remote location closes it and returns to
+the directory it was opened from.
+Everything else is passed to
+.BR $SHELL .
+.SH FILES
+.TP
+.I ~/.config/rfm/config.toml
+Configuration (TOML): color themes, archive types, viewer and editor
+programs, layout and other settings.
+Created with defaults on the first run.
+.TP
+.I ~/.local/share/rfm/panel
+Saved panel state, restored on the next start.
+.TP
+.I ~/.local/share/rfm/history
+Command history.
+.SH ENVIRONMENT
+.TP
+.B RFM_CONFIG
+Path to the configuration file.
+.TP
+.B XDG_CONFIG_HOME
+Base directory of the configuration
+.RI ( $XDG_CONFIG_HOME/rfm/config.toml ).
+.TP
+.B XDG_DATA_HOME
+Base directory of the state and history files
+.RI ( $XDG_DATA_HOME/rfm/ ).
+.TP
+.B SHELL
+Shell used to run commands and for
+.BR "c\-x o" ;
+.I /bin/sh
+if unset.
+.SH SEE ALSO
+.BR ssh (1),
+.BR sftp (1),
+.BR curl (1),
+.BR sudo (8)
+.SH AUTHOR
+Eugene Chertikhin <e.chertikhin@gmail.com>
+.SH COPYRIGHT
+Copyright (C) 2026 Eugene Chertikhin.
+License GPL\-3.0\-or\-later: GNU GPL version 3 or later
+<https://www.gnu.org/licenses/gpl.html>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.

@@ -31,7 +31,7 @@ make rpm        # build/rpm/RPMS/<arch>/rfm-<version>-1.*.rpm (needs rpmbuild)
 make clean
 ```
 
-The version comes from the `VERSION` file. `arch` and `rpm` build from a
+The version comes from `version` in `Cargo.toml`. `arch` and `rpm` build from a
 `git archive` of `HEAD`, so commit your changes first.
 
 ## Keys (essentials)

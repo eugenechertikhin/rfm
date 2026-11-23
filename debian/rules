@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/pkg-info.mk
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CARGO_CRATE = rfm_$(DEB_VERSION_UPSTREAM)
+# Debian strips itself (dbgsym); upstream release profile strips and uses opt-level z.
+export CARGO_PROFILE_RELEASE_STRIP = false
+export CARGO_PROFILE_RELEASE_OPT_LEVEL = 3
+
+%:
+	dh $@ --buildsystem cargo
+
+# Upstream Cargo.lock pins crates.io versions; Debian builds against its own registry.
+execute_before_dh_auto_configure:
+	[ -f debian/Cargo.lock.upstream ] || mv Cargo.lock debian/Cargo.lock.upstream
+
+execute_after_dh_auto_clean:
+	[ ! -f debian/Cargo.lock.upstream ] || mv debian/Cargo.lock.upstream Cargo.lock
