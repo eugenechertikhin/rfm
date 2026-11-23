@@ -41,7 +41,7 @@ use crate::vfs::transfer::{ArchiveSrc, Loc, SftpConn};
 use crate::vfs::{VfsEntry, VfsPath};
 
 /// Подсказки which-key для аккордов `Ctrl+x` (полноценный вид — этап 4).
-const HINT_ROOT: &str   = "c-x: n create · c copy · m move · e/E edit · v/V view · d delete · h help · x settings · q quit · s sort · p panel";
+const HINT_ROOT: &str   = "c-x: n create · c copy · m move · e/E edit · v/V view · d delete · o shell · h help · x settings · q quit · s sort · p panel";
 const HINT_SORT: &str   = "c-x s: s size · d date · n name · f dirs-first";
 const HINT_PANEL: &str  = "c-x p: c create · x close";
 /// Подсказка `Ctrl+x` в просмотрщике — доступны только настройки и помощь.
@@ -75,6 +75,8 @@ pub enum Action {
     Quit,
     RunShell(String),
     ShowShell,
+    /// Интерактивный `$SHELL` в директории активной панели (`Ctrl+x o`).
+    Shell,
     /// Интерактивно поднять мастер-соединение SFTP (пароль/known_hosts спрашивает ssh на
     /// экране shell), затем `App::finish_sftp`. Несёт цель и путь control-сокета.
     SftpConnect(crate::vfs::sftp::SftpTarget, PathBuf),
@@ -655,6 +657,11 @@ impl App {
                     self.prefix = Prefix::None;
                     self.open_settings();
                     Action::Redraw
+                }
+                KeyCode::Char('o') => {
+                    self.prefix = Prefix::None;
+                    self.status.clear();
+                    Action::Shell
                 }
                 KeyCode::Char('q') => {
                     self.prefix = Prefix::None;

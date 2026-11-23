@@ -192,6 +192,38 @@ pub fn run_interactive<B: Backend<Error = io::Error>>(
     Ok(ok)
 }
 
+/// Имя шелла для эха (`zsh` из `/bin/zsh`).
+pub fn shell_name(program: &str) -> &str {
+    program.rsplit('/').find(|s| !s.is_empty()).unwrap_or(program)
+}
+
+/// Запускает интерактивный `$SHELL` в `cwd` (`Ctrl+x o`). Не login-шелл: окружение
+/// наследуется от rfm, профиль повторно не читается. Без паузы после выхода.
+pub fn run_shell<B: Backend<Error = io::Error>>(
+    terminal: &mut Terminal<B>,
+    cwd: &Path,
+    prompt: &str,
+) -> io::Result<()> {
+    let program = shell_program();
+    leave_tui()?;
+    {
+        let mut out = io::stdout();
+        write!(out, "{}", command_echo(prompt, shell_name(&program)))?;
+        out.flush()?;
+    }
+    let _signals = SignalGuard::ignore();
+    let mut command = ProcessCommand::new(&program);
+    command.current_dir(cwd);
+    restore_child_signals(&mut command);
+    if let Err(e) = command.status() {
+        let _ = writeln!(io::stderr(), "rfm: failed to run shell: {e}");
+        wait_key("Press any key to continue...")?;
+    }
+    enter_tui()?;
+    terminal.clear()?;
+    Ok(())
+}
+
 /// Показывает экран выполнения команд (shell) и ждёт нажатия клавиши (`Ctrl+o`).
 pub fn show_shell_screen<B: Backend<Error = io::Error>>(terminal: &mut Terminal<B>) -> io::Result<()> {
     leave_tui()?;

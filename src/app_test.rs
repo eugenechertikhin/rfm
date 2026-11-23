@@ -98,6 +98,18 @@ fn ctrl_q_does_nothing() {
 }
 
 #[test]
+fn chord_o_runs_interactive_shell() {
+    let mut app = app_with(vec![]);
+    app.handle_key(ctrl('x'));
+    assert_eq!(app.handle_key(key(KeyCode::Char('o'))), Action::Shell);
+    // Аккорд сброшен, подсказка убрана, в командную строку ничего не попало.
+    assert_eq!(app.status, "");
+    assert_eq!(app.cmdline.text(), "");
+    app.handle_key(key(KeyCode::Char('o')));
+    assert_eq!(app.cmdline.text(), "o");
+}
+
+#[test]
 fn ctrl_l_requests_full_redraw() {
     // Ctrl+l — единственный источник полного сброса экрана из клавиш.
     let mut app = app_with(vec![]);

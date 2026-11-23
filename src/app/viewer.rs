@@ -463,6 +463,7 @@ Command line:
 Operations (c-x):
   n c m d e v            create copy move delete edit view
   s s/d/n/f              sort size/date/name/dirs-first
+  o                      interactive shell (exit / c-d to return)
   x                      settings
   h                      this help
   q                      quit

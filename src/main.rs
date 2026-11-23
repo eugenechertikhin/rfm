@@ -90,6 +90,13 @@ fn run<B: ratatui::backend::Backend<Error = io::Error>>(
                 // Возврат из alt-screen делает known-буфер невалидным — полный сброс.
                 terminal.clear()?;
             }
+            Action::Shell => {
+                if let Some(cwd) = app.cwd() {
+                    shell::run_shell(terminal, &cwd, &app.prompt)?;
+                }
+                app.after_shell();
+                terminal.clear()?;
+            }
             Action::ShowShell => {
                 shell::show_shell_screen(terminal)?;
                 terminal.clear()?;

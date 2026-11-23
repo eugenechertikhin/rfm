@@ -76,3 +76,11 @@ fn command_echo_keeps_command_verbatim() {
         "\r\nu@h $ './my script.sh'\r\n"
     );
 }
+
+#[test]
+fn shell_name_is_basename() {
+    assert_eq!(shell_name("/bin/zsh"), "zsh");
+    assert_eq!(shell_name("/usr/local/bin/bash"), "bash");
+    assert_eq!(shell_name("sh"), "sh");
+    assert_eq!(shell_name("/opt/fish/"), "fish");
+}
