@@ -42,7 +42,7 @@ fn main() -> io::Result<()> {
     result
 }
 
-fn run<B: ratatui::backend::Backend>(
+fn run<B: ratatui::backend::Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     app: &mut App,
 ) -> io::Result<()> {

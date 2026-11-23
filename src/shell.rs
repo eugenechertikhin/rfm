@@ -129,7 +129,7 @@ fn restore_child_signals(cmd: &mut ProcessCommand) {
 /// Выполняет команду в `cwd` через `$SHELL -c`, вернув экран shell как был.
 /// Пауза после команды — по `pause`. NB: `OnOutput` пока трактуется как `Always`
 /// (при наследуемом tty вывод не перехватываем).
-pub fn run_command<B: Backend>(
+pub fn run_command<B: Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     cwd: &Path,
     cmd: &str,
@@ -159,7 +159,7 @@ pub fn run_command<B: Backend>(
 /// Запускает интерактивную команду (напр. `ssh -M`) вне TUI: cooked mode + основной
 /// экран, наследование реального tty (для промптов пароля/known_hosts). Возвращает успех.
 /// При неуспехе ждёт клавишу, чтобы дать прочитать сообщение об ошибке.
-pub fn run_interactive<B: Backend>(
+pub fn run_interactive<B: Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     program: &str,
     args: &[String],
@@ -180,7 +180,7 @@ pub fn run_interactive<B: Backend>(
 }
 
 /// Показывает экран выполнения команд (shell) и ждёт нажатия клавиши (`Ctrl+o`).
-pub fn show_shell_screen<B: Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
+pub fn show_shell_screen<B: Backend<Error = io::Error>>(terminal: &mut Terminal<B>) -> io::Result<()> {
     leave_tui()?;
     wait_key("-- shell screen -- press any key to return --")?;
     enter_tui()?;
