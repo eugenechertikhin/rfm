@@ -42,7 +42,7 @@ No DOS-style function-key shortcuts (F1, …) — only Ctrl shortcuts, to reuse 
 |-----|--------|
 | `Tab` | switch panel |
 | `Enter` | open dir / run executable / enter archive / run typed command |
-| `Ctrl+x` … | operations: `c` copy, `m` move, `d` delete, `n` mkdir, `v` view, `e` edit, `s` sort, `p` panels, `x` settings, `h` help, `q` quit |
+| `Ctrl+x` … | operations: `c` copy, `m` move, `d` delete, `n` mkdir, `v`/`V` view, `e`/`E` edit (uppercase — fullscreen), `s` sort, `p` panels, `x` settings, `h` help, `q` quit |
 | `Ctrl+t`, `Shift+↑/↓` | mark files |
 | `Ctrl+s` | incremental search in list |
 | `Ctrl+p`/`Ctrl+n`, `Ctrl+g` | command history prev/next, history search |

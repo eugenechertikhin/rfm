@@ -41,6 +41,9 @@ pub struct Panel {
     pub viewer: Option<Viewer>,
     /// Встроенный редактор, открытый в этой панели (если есть).
     pub editor: Option<Editor>,
+    /// Просмотрщик/редактор открыт на всю область панелей (`Ctrl+x V`/`E`):
+    /// прочие панели скрыты. Не персистится.
+    pub fullscreen: bool,
     /// Число колонок с файлами (>1 — имена без размеров, навигация `←`/`→`).
     pub columns: usize,
     /// Переопределение вида списка для этой панели (None — брать глобальный).
@@ -68,6 +71,7 @@ impl Panel {
             sort: SortState::default(),
             viewer: None,
             editor: None,
+            fullscreen: false,
             columns: 1,
             view_override: None,
             grid_left: 0,

@@ -61,14 +61,28 @@ pub fn render(f: &mut Frame, app: &mut App) {
         PanelLayout::Horizontal => Layout::vertical(constraints).split(chunks[0]),
     };
     let active = app.active;
+    // Полноэкранный просмотрщик/редактор (`Ctrl+x V`/`E`) активной панели занимает
+    // всю область панелей; прочие панели скрыты (пустая area — мимо них клики не попадут).
+    let full = {
+        let p = &app.panels[active];
+        p.fullscreen && (p.viewer.is_some() || p.editor.is_some())
+    };
     for (i, panel) in app.panels.iter_mut().enumerate() {
-        panel.area = panel_areas[i]; // запоминаем для попаданий мышью
+        let rect = match (full, i == active) {
+            (false, _) => panel_areas[i],
+            (true, true) => chunks[0],
+            (true, false) => {
+                panel.area = Rect::default();
+                continue;
+            }
+        };
+        panel.area = rect; // запоминаем для попаданий мышью
         if let Some(ed) = panel.editor.as_mut() {
-            render_editor(f, panel_areas[i], ed, &theme, i == active);
+            render_editor(f, rect, ed, &theme, i == active);
         } else if let Some(v) = panel.viewer.as_mut() {
-            render_viewer(f, panel_areas[i], v, &theme, i == active);
+            render_viewer(f, rect, v, &theme, i == active);
         } else {
-            render_panel(f, panel_areas[i], panel, &theme, i == active);
+            render_panel(f, rect, panel, &theme, i == active);
         }
     }
 

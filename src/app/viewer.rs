@@ -34,17 +34,22 @@ impl App {
         Action::Redraw
     }
 
-    pub(super) fn op_edit(&mut self) -> Action {
+    /// `Ctrl+x e` / `Ctrl+x E` (`fullscreen` — на всю область панелей).
+    pub(super) fn op_edit(&mut self, fullscreen: bool) -> Action {
         let prog = self.config.edit.clone();
-        self.view_or_edit(&prog, "edit")
+        self.view_or_edit(&prog, "edit", fullscreen)
     }
 
-    pub(super) fn op_view(&mut self) -> Action {
+    /// `Ctrl+x v` / `Ctrl+x V` (`fullscreen` — на всю область панелей).
+    pub(super) fn op_view(&mut self, fullscreen: bool) -> Action {
         let prog = self.config.view.clone();
-        self.view_or_edit(&prog, "view")
+        self.view_or_edit(&prog, "view", fullscreen)
     }
 
-    pub(super) fn view_or_edit(&mut self, prog: &str, verb: &str) -> Action {
+    /// Открывает файл под курсором во встроенном просмотрщике/редакторе (в активной
+    /// панели или, при `fullscreen`, на всю область панелей) либо во внешней программе
+    /// (она и так занимает весь экран — `fullscreen` не влияет).
+    pub(super) fn view_or_edit(&mut self, prog: &str, verb: &str, fullscreen: bool) -> Action {
         let edit = verb == "edit";
         // Локальный файл — как есть; иначе (SFTP/FTP/архив) — временная копия.
         let (path, copy) = match self.cursor_local_path() {
@@ -66,6 +71,10 @@ impl App {
                 self.open_editor(&path);
             } else {
                 self.open_viewer(&path);
+            }
+            let p = self.active_panel_mut();
+            if p.viewer.is_some() || p.editor.is_some() {
+                p.fullscreen = fullscreen;
             }
             if let Some(c) = copy {
                 self.attach_copy(c, edit);
@@ -118,9 +127,12 @@ impl App {
             self.status = HINT_VIEWER.to_string();
             return Action::Redraw;
         }
-        // Переключение панелей работает и при открытом просмотрщике (он остаётся в своей панели).
+        // Переключение панелей работает и при открытом просмотрщике (он остаётся в своей панели);
+        // в полноэкранном режиме прочие панели скрыты — `Tab` ничего не делает.
         if key.code == KeyCode::Tab {
-            self.next_panel();
+            if !self.active_panel().fullscreen {
+                self.next_panel();
+            }
             return Action::Redraw;
         }
         // `/` — начать поиск; `n`/`p` — навигация по совпадениям (когда поиск активен).
@@ -423,7 +435,7 @@ Operations (c-x):
   h                      this help
   q                      quit
 
-Viewer (c-x v):
+Viewer (c-x v|V):
   q/Esc                  close viewer screen
   d                      toggle hex dump/ascii text
   w                      toggle wrap/unwrap
@@ -431,7 +443,7 @@ Viewer (c-x v):
   p                      prettify json/xml (no active search)
   tab                    switch to another panel
 
-Editor (c-x e):
+Editor (c-x e|E):
   c-x h                  editor keys (inside the editor)
   c-x s / c-x x          save / save and close
   Esc / c-x q            close WITHOUT saving

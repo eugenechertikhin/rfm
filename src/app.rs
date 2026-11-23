@@ -41,7 +41,7 @@ use crate::vfs::transfer::{ArchiveSrc, Loc, SftpConn};
 use crate::vfs::{VfsEntry, VfsPath};
 
 /// Подсказки which-key для аккордов `Ctrl+x` (полноценный вид — этап 4).
-const HINT_ROOT: &str   = "c-x: n create · c copy · m move · e edit · v view · d delete · h help · x settings · q quit · s sort · p panel";
+const HINT_ROOT: &str   = "c-x: n create · c copy · m move · e/E edit · v/V view · d delete · h help · x settings · q quit · s sort · p panel";
 const HINT_SORT: &str   = "c-x s: s size · d date · n name · f dirs-first";
 const HINT_PANEL: &str  = "c-x p: c create · x close";
 /// Подсказка `Ctrl+x` в просмотрщике — доступны только настройки и помощь.
@@ -642,13 +642,14 @@ impl App {
                     self.op_move();
                     Action::Redraw
                 }
-                KeyCode::Char('e') => {
+                // Заглавные — на всю область панелей (сравниваем символ, не флаг SHIFT).
+                KeyCode::Char(c @ ('e' | 'E')) => {
                     self.prefix = Prefix::None;
-                    self.op_edit()
+                    self.op_edit(c == 'E')
                 }
-                KeyCode::Char('v') => {
+                KeyCode::Char(c @ ('v' | 'V')) => {
                     self.prefix = Prefix::None;
-                    self.op_view()
+                    self.op_view(c == 'V')
                 }
                 KeyCode::Char('x') => {
                     self.prefix = Prefix::None;

@@ -416,7 +416,7 @@ fn internal_edit_opens_editor_not_viewer() {
         .position(|e| e.name == "g.txt")
         .unwrap();
     app.active_panel_mut().cursor = idx;
-    app.op_edit();
+    app.op_edit(false);
     assert!(app.active_panel().editor.is_some());
     assert!(app.active_panel().viewer.is_none());
     fs::remove_dir_all(&dir).ok();
@@ -684,5 +684,62 @@ fn ctrl_x_h_opens_editor_help() {
     let text: Vec<String> = help.content_lines().cloned().unwrap_or_default();
     assert!(text.iter().any(|l| l.contains("c-x m")));
     assert!(!text.iter().any(|l| l.contains("Panels:"))); // не общий help
+    fs::remove_dir_all(&dir).ok();
+}
+
+// ---- Полноэкранный режим (`Ctrl+x V` / `Ctrl+x E`) ----
+
+/// Приложение с двумя панелями; курсор активной — на файле `f.txt` во временной директории.
+fn app_on_file() -> (App, PathBuf) {
+    let dir = tmp_dir();
+    fs::write(dir.join("f.txt"), "hello\n").unwrap();
+    let mut app = App::new(crate::config::Config::default());
+    app.handle_key(ctrl('x'));
+    app.handle_key(key(KeyCode::Char('p')));
+    app.handle_key(key(KeyCode::Char('c'))); // вторая панель
+    app.active = 0;
+    app.active_panel_mut().path = VfsPath::local(dir.clone());
+    app.reload();
+    let idx = app.active_panel().entries.iter().position(|e| e.name == "f.txt").unwrap();
+    app.active_panel_mut().cursor = idx;
+    (app, dir)
+}
+
+/// `Ctrl+x <c>`; заглавная — с SHIFT, как её шлёт терминал.
+fn chord_shift(app: &mut App, c: char) {
+    app.handle_key(ctrl('x'));
+    let m = if c.is_ascii_uppercase() { KeyModifiers::SHIFT } else { KeyModifiers::NONE };
+    app.handle_key(KeyEvent::new(KeyCode::Char(c), m));
+}
+
+#[test]
+fn uppercase_e_opens_editor_fullscreen() {
+    let (mut app, dir) = app_on_file();
+    assert_eq!(app.panels.len(), 2);
+    chord_shift(&mut app, 'E');
+    assert!(app.active_panel().editor.is_some());
+    assert!(app.active_panel().fullscreen);
+    app.handle_key(key(KeyCode::Esc)); // без правок — закрывается сразу
+    assert!(app.active_panel().editor.is_none());
+    chord_shift(&mut app, 'e');
+    assert!(app.active_panel().editor.is_some());
+    assert!(!app.active_panel().fullscreen, "lowercase opens in panel");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn uppercase_v_opens_viewer_fullscreen_and_tab_is_ignored() {
+    let (mut app, dir) = app_on_file();
+    chord_shift(&mut app, 'V');
+    assert!(app.active_panel().viewer.is_some());
+    assert!(app.active_panel().fullscreen);
+    app.handle_key(key(KeyCode::Tab));
+    assert_eq!(app.active, 0, "other panels are hidden — Tab does not switch");
+    app.handle_key(key(KeyCode::Char('q')));
+    assert!(app.active_panel().viewer.is_none());
+    chord_shift(&mut app, 'v');
+    assert!(!app.active_panel().fullscreen, "lowercase opens in panel");
+    app.handle_key(key(KeyCode::Tab));
+    assert_eq!(app.active, 1, "in-panel viewer keeps Tab switching");
     fs::remove_dir_all(&dir).ok();
 }

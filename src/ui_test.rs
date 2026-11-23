@@ -481,3 +481,37 @@ fn history_search_scrolls_in_short_terminal() {
     assert!(s.contains("cmd-07"));
     assert!(!s.contains("cmd-02"));
 }
+
+#[test]
+fn fullscreen_editor_takes_whole_panel_area() {
+    use ratatui::{backend::TestBackend, Terminal};
+    let dir = std::env::temp_dir().join(format!("rfm_ui_full_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("f.txt");
+    std::fs::write(&file, "hello\n").unwrap();
+
+    let mut app = crate::app::App::new(crate::config::Config::default());
+    app.config.show_clock = false;
+    app.config.panel_layout = PanelLayout::Vertical;
+    app.panels.push(crate::app::Panel::new(crate::vfs::VfsPath::local(dir.clone())));
+    app.active = 0;
+    app.panels[0].editor = Some(crate::app::Editor::load(&file).unwrap());
+    let mut term = Terminal::new(TestBackend::new(80, 20)).unwrap();
+
+    // В панели: две половины.
+    term.draw(|f| render(f, &mut app)).unwrap();
+    assert_eq!(app.panels[0].area.width, 40);
+    assert_eq!(app.panels[1].area.width, 40);
+
+    // Полноэкранно: вся ширина, вторая панель скрыта.
+    app.panels[0].fullscreen = true;
+    term.draw(|f| render(f, &mut app)).unwrap();
+    assert_eq!(app.panels[0].area, Rect::new(0, 0, 80, 18));
+    assert_eq!(app.panels[1].area, Rect::default());
+
+    // Флаг без открытого редактора ничего не меняет.
+    app.panels[0].editor = None;
+    term.draw(|f| render(f, &mut app)).unwrap();
+    assert_eq!(app.panels[1].area.width, 40);
+    std::fs::remove_dir_all(&dir).ok();
+}
