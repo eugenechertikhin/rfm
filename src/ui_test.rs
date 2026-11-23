@@ -134,6 +134,7 @@ fn overlay_titles_in_brackets() {
         input: crate::app::CmdLine::default(),
         results: vec![],
         sel: 0,
+        top: 0,
     });
     assert!(screen(&mut app).contains("[ History search (Ctrl+g) ]"));
 }
@@ -411,4 +412,72 @@ fn replace_dialog_renders_fields_and_buttons() {
     for s in ["[ replace ]", "Find:    foo", "Replace: bar", "[ Replace (c-y) ]", "[ Replace all (c-l) ]", "[ Cancel (c-n) ]"] {
         assert!(screen.contains(s), "missing {s}");
     }
+}
+
+#[test]
+fn history_search_scrolls_to_keep_selection_visible() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::{backend::TestBackend, Terminal};
+    let mut app = crate::app::App::new(crate::config::Config::default());
+    app.config.show_clock = false;
+    app.dialog = Some(crate::app::Dialog::HistorySearch {
+        input: crate::app::CmdLine::default(),
+        results: (0..30).map(|i| format!("cmd-{i:02}")).collect(),
+        sel: 0,
+        top: 0,
+    });
+    let mut term = Terminal::new(TestBackend::new(60, 30)).unwrap();
+    let mut screen = |app: &mut crate::app::App| -> String {
+        term.draw(|f| render(f, app)).unwrap();
+        let buf = term.backend().buffer().clone();
+        (0..buf.area.height)
+            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    // Рендер после каждого шага, как в event-loop.
+    for _ in 0..20 {
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        screen(&mut app);
+    }
+    let s = screen(&mut app);
+    assert!(s.contains("cmd-20"), "selection must be visible");
+    assert!(s.contains("cmd-09"), "window of 12 rows ends at selection");
+    assert!(!s.contains("cmd-08"), "rows above window are scrolled out");
+
+    // Вверх: окно не двигается, пока курсор внутри.
+    app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    let s = screen(&mut app);
+    assert!(s.contains("cmd-09") && !s.contains("cmd-08"));
+
+    app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    let s = screen(&mut app);
+    assert!(s.contains("cmd-29") && !s.contains("cmd-17"));
+
+    app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+    let s = screen(&mut app);
+    assert!(s.contains("cmd-00") && !s.contains("cmd-12"));
+}
+
+#[test]
+fn history_search_scrolls_in_short_terminal() {
+    use ratatui::{backend::TestBackend, Terminal};
+    let mut app = crate::app::App::new(crate::config::Config::default());
+    app.config.show_clock = false;
+    app.dialog = Some(crate::app::Dialog::HistorySearch {
+        input: crate::app::CmdLine::default(),
+        results: (0..30).map(|i| format!("cmd-{i:02}")).collect(),
+        sel: 7,
+        top: 0,
+    });
+    // Высота 8: окно обрезано, видно 5 строк результатов.
+    let mut term = Terminal::new(TestBackend::new(60, 8)).unwrap();
+    term.draw(|f| render(f, &mut app)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let s: String = (0..buf.area.height)
+        .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(s.contains("cmd-07"));
+    assert!(!s.contains("cmd-02"));
 }

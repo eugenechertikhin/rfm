@@ -44,7 +44,7 @@ fn buttons_per_dialog() {
     assert_eq!(labels(&quit), ["[ Yes (c-y) ]", "[ Cancel (c-n) ]"]);
     let del = Dialog::Confirm { message: String::new(), op: PendingOp::Delete(vec![]) };
     assert_eq!(labels(&del), ["[ Delete (c-y) ]", "[ Sudo (c-s) ]", "[ Cancel (c-n) ]"]);
-    let hist = Dialog::HistorySearch { input: CmdLine::default(), results: vec![], sel: 0 };
+    let hist = Dialog::HistorySearch { input: CmdLine::default(), results: vec![], sel: 0, top: 0 };
     assert!(labels(&hist).is_empty());
 }
 
@@ -126,7 +126,7 @@ fn quit_editor_tab_to_cancel_stays() {
 #[test]
 fn tab_in_dialog_without_buttons_is_ignored() {
     let mut app = app_with_a();
-    app.dialog = Some(Dialog::HistorySearch { input: CmdLine::default(), results: vec![], sel: 0 });
+    app.dialog = Some(Dialog::HistorySearch { input: CmdLine::default(), results: vec![], sel: 0, top: 0 });
     app.handle_key(key(KeyCode::Tab));
     assert_eq!(app.dialog_btn, 0);
     assert!(app.dialog.is_some());

@@ -3,6 +3,9 @@
 use super::*;
 use crate::vfs::transfer::{self, Item, Loc};
 
+/// Шаг `PgUp`/`PgDn` в списке поиска по истории (как в панелях).
+const HISTORY_PAGE: usize = 10;
+
 /// Действие кнопки диалога (то же, что её Ctrl-шорткат).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BtnAct {
@@ -210,55 +213,45 @@ impl App {
                 mut input,
                 mut results,
                 mut sel,
-            } => match key.code {
-                KeyCode::Enter => {
-                    if let Some(cmd) = results.get(sel) {
-                        self.cmdline = CmdLine::from_str(cmd);
-                        self.hist_nav = None;
+                mut top,
+            } => {
+                let last = results.len().saturating_sub(1);
+                match key.code {
+                    KeyCode::Enter => {
+                        if let Some(cmd) = results.get(sel) {
+                            self.cmdline = CmdLine::from_str(cmd);
+                            self.hist_nav = None;
+                        }
+                        return Action::Redraw;
                     }
-                    Action::Redraw
-                }
-                KeyCode::Esc => Action::Redraw,
-                KeyCode::Up => {
-                    sel = sel.saturating_sub(1);
-                    self.dialog = Some(Dialog::HistorySearch { input, results, sel });
-                    Action::None
-                }
-                KeyCode::Down => {
-                    if sel + 1 < results.len() {
-                        sel += 1;
+                    KeyCode::Esc => return Action::Redraw,
+                    KeyCode::Up => sel = sel.saturating_sub(1),
+                    KeyCode::Down => sel = (sel + 1).min(last),
+                    KeyCode::PageUp => sel = sel.saturating_sub(HISTORY_PAGE),
+                    KeyCode::PageDown => sel = (sel + HISTORY_PAGE).min(last),
+                    KeyCode::Home => sel = 0,
+                    KeyCode::End => sel = last,
+                    KeyCode::Backspace => {
+                        input.backspace();
+                        results = self.history.ranked(&input.text());
+                        sel = 0;
+                        top = 0;
                     }
-                    self.dialog = Some(Dialog::HistorySearch { input, results, sel });
-                    Action::None
+                    KeyCode::Char(c)
+                        if !key.modifiers.contains(KeyModifiers::CONTROL)
+                            && !key.modifiers.contains(KeyModifiers::ALT) =>
+                    {
+                        input.insert(c);
+                        results = self.history.ranked(&input.text());
+                        sel = 0;
+                        top = 0;
+                    }
+                    _ => {}
                 }
-                KeyCode::Backspace => {
-                    input.backspace();
-                    results = self.history.ranked(&input.text());
-                    self.dialog = Some(Dialog::HistorySearch {
-                        input,
-                        results,
-                        sel: 0,
-                    });
-                    Action::None
-                }
-                KeyCode::Char(c)
-                    if !key.modifiers.contains(KeyModifiers::CONTROL)
-                        && !key.modifiers.contains(KeyModifiers::ALT) =>
-                {
-                    input.insert(c);
-                    results = self.history.ranked(&input.text());
-                    self.dialog = Some(Dialog::HistorySearch {
-                        input,
-                        results,
-                        sel: 0,
-                    });
-                    Action::None
-                }
-                _ => {
-                    self.dialog = Some(Dialog::HistorySearch { input, results, sel });
-                    Action::None
-                }
-            },
+                // Прокрутку (`top`) под `sel` подгоняет рендер — он знает высоту окна.
+                self.dialog = Some(Dialog::HistorySearch { input, results, sel, top });
+                Action::None
+            }
         }
     }
 

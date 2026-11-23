@@ -37,6 +37,7 @@ impl App {
             input: CmdLine::default(),
             results,
             sel: 0,
+            top: 0,
         });
     }
 

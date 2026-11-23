@@ -135,13 +135,14 @@ pub fn render(f: &mut Frame, app: &mut App) {
     }
 
     // ---- Модальный диалог поверх всего ----
-    if let Some(dialog) = &app.dialog {
+    if let Some(dialog) = app.dialog.as_mut() {
         match dialog {
             Dialog::HistorySearch {
                 input,
                 results,
                 sel,
-            } => render_history_search(f, area, input, results, *sel, &theme),
+                top,
+            } => render_history_search(f, area, input, results, *sel, top, &theme),
             _ => render_dialog(f, area, dialog, app.dialog_btn, &theme),
         }
         return;

@@ -1406,3 +1406,37 @@ fn theme_selected_from_config() {
     assert_eq!(app.theme.select_bg, ratatui::style::Color::Magenta);
     assert_eq!(app.theme.select_fg, crate::theme::Theme::default_dark().select_fg);
 }
+
+#[test]
+fn history_search_page_home_end_keys() {
+    let mut app = app_with(vec![]);
+    app.dialog = Some(Dialog::HistorySearch {
+        input: CmdLine::default(),
+        results: (0..25).map(|i| format!("c{i}")).collect(),
+        sel: 0,
+        top: 0,
+    });
+    let sel = |app: &App| match &app.dialog {
+        Some(Dialog::HistorySearch { sel, .. }) => *sel,
+        _ => panic!("expected HistorySearch dialog"),
+    };
+    app.handle_key(key(KeyCode::PageDown));
+    assert_eq!(sel(&app), 10);
+    app.handle_key(key(KeyCode::PageDown));
+    app.handle_key(key(KeyCode::PageDown));
+    assert_eq!(sel(&app), 24); // клампится к последнему
+    app.handle_key(key(KeyCode::Down));
+    assert_eq!(sel(&app), 24);
+    app.handle_key(key(KeyCode::PageUp));
+    assert_eq!(sel(&app), 14);
+    app.handle_key(key(KeyCode::Home));
+    assert_eq!(sel(&app), 0);
+    app.handle_key(key(KeyCode::End));
+    assert_eq!(sel(&app), 24);
+    // Ввод перестраивает список — выбор и прокрутка сбрасываются.
+    app.handle_key(key(KeyCode::Char('x')));
+    match &app.dialog {
+        Some(Dialog::HistorySearch { sel, top, .. }) => assert_eq!((*sel, *top), (0, 0)),
+        _ => panic!("expected HistorySearch dialog"),
+    }
+}

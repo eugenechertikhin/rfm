@@ -209,13 +209,16 @@ pub(super) fn render_history_search(
     input: &crate::app::CmdLine,
     results: &[String],
     sel: usize,
+    top: &mut usize,
     theme: &Theme,
 ) {
     let max_rows = 12usize;
-    let shown = results.len().min(max_rows);
     let width = area.width.saturating_sub(4).clamp(20, 80);
-    let height = (shown as u16 + 3).min(area.height); // рамка + строка запроса
+    let height = (results.len().min(max_rows) as u16 + 3).min(area.height); // рамка + строка запроса
     let rect = centered_rect(area, width, height);
+    // Сколько строк результатов реально влезает (окно могло обрезаться по высоте экрана).
+    let rows = (rect.height as usize).saturating_sub(3);
+    *top = history_scroll_top(*top, sel, rows, results.len());
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -233,8 +236,8 @@ pub(super) fn render_history_search(
     f.render_widget(qpar, qarea);
 
     // Результаты.
-    for (i, cmd) in results.iter().take(shown).enumerate() {
-        let y = rect.y + 2 + i as u16;
+    for (i, cmd) in results.iter().enumerate().skip(*top).take(rows) {
+        let y = rect.y + 2 + (i - *top) as u16;
         let row = Rect::new(rect.x + 1, y, rect.width.saturating_sub(2), 1);
         let text = truncate_width(cmd, inner_w);
         let style = if i == sel {
@@ -254,6 +257,22 @@ pub(super) fn render_history_search(
         x.min(rect.x + rect.width.saturating_sub(2)),
         rect.y + 1,
     ));
+}
+
+/// Первая видимая строка списка из `len` элементов при `rows` видимых строках:
+/// минимально сдвигает прежний `top`, чтобы выбранный `sel` оказался в окне
+/// (прокрутка по одной строке, как в панелях), и не оставляет пустоты внизу.
+pub(super) fn history_scroll_top(top: usize, sel: usize, rows: usize, len: usize) -> usize {
+    if rows == 0 || len == 0 {
+        return 0;
+    }
+    let mut top = top.min(len.saturating_sub(rows));
+    if sel < top {
+        top = sel;
+    } else if sel >= top + rows {
+        top = sel + 1 - rows;
+    }
+    top
 }
 
 /// Разделитель между кнопками.
@@ -467,3 +486,7 @@ fn render_confirm(f: &mut Frame, area: Rect, message: &str, buttons: &[&str], fo
     // Строка кнопок (с пустой строкой-отступом над ними).
     render_button_row(f, Rect::new(inner.x, inner.y + 2, inner.width, 1), buttons, focus, theme);
 }
+
+#[cfg(test)]
+#[path = "overlay_test.rs"]
+mod tests;
