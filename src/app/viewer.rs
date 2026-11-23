@@ -100,6 +100,12 @@ impl App {
         }
     }
 
+    /// Помощь просмотрщика (`Ctrl+x h` в нём): только его клавиши.
+    fn open_viewer_help(&mut self) {
+        let lines = VIEWER_HELP_TEXT.lines().map(|l| l.to_string()).collect();
+        self.help = Some(Viewer::from_memory("Viewer help".to_string(), lines));
+    }
+
     pub(super) fn handle_viewer_key(&mut self, key: KeyEvent) -> Action {
         // Ввод строки поиска (`/`) перехватывает все клавиши до Enter/Esc.
         if self
@@ -117,7 +123,7 @@ impl App {
             self.status.clear();
             match key.code {
                 KeyCode::Char('x') => self.open_settings(),
-                KeyCode::Char('h') => self.open_help(),
+                KeyCode::Char('h') => self.open_viewer_help(),
                 _ => {} // прочее (в т.ч. Esc) — отмена аккорда
             }
             return Action::Redraw;
@@ -403,6 +409,32 @@ fn viewer_ensure_visible(v: &mut Viewer, line: usize, col: usize, qlen: usize) {
 }
 
 /// Подсказка в строке статуса при открытом просмотрщике.
+/// Текст помощи просмотрщика (`Ctrl+x h` при открытом просмотрщике).
+const VIEWER_HELP_TEXT: &str = "\
+Scroll:
+  Up / Down              line up / down
+  Left / Right           scroll sideways (not in wrap mode)
+  Space / PgDn / PgUp    page down / up
+  Home / End             start / end of file
+  mouse wheel            scroll
+
+Mode:
+  d                      toggle hex dump / ascii text
+  w                      toggle wrap / unwrap
+  p                      prettify json/xml (no active search)
+
+Search:
+  /                      start search (Enter search · Esc cancel)
+  n / p                  next / previous match (p while search is active)
+
+Other:
+  Tab                    switch panel (not in fullscreen c-x V)
+  c-x x                  settings
+  c-x h                  this help
+  q / Esc                close viewer
+
+Help: arrows scroll · q/Esc close";
+
 pub(super) const VIEWER_HINT: &str =
     "viewer: q/Esc close · arrows scroll · / search · n next · p prev · d hex · w wrap · Tab panel";
 
@@ -850,3 +882,7 @@ pub(super) fn hex_line(offset: u64, chunk: &[u8]) -> String {
     let pad = 49_usize.saturating_sub(hex.len());
     format!("{:08x}  {}{}  |{}|", offset, hex, " ".repeat(pad), text)
 }
+
+#[cfg(test)]
+#[path = "viewer_test.rs"]
+mod tests;
