@@ -1454,3 +1454,35 @@ fn history_search_page_home_end_keys() {
         _ => panic!("expected HistorySearch dialog"),
     }
 }
+
+#[test]
+fn cmdline_delete_key_removes_char_under_cursor() {
+    let mut app = app_with(vec![]);
+    for ch in "ls -la".chars() {
+        app.handle_key(key(KeyCode::Char(ch)));
+    }
+    app.handle_key(ctrl('a'));
+    app.handle_key(key(KeyCode::Delete));
+    assert_eq!(app.cmdline.text(), "s -la");
+    assert_eq!(app.cmdline.cursor, 0);
+    // В конце строки DEL ничего не делает.
+    app.handle_key(ctrl('e'));
+    app.handle_key(key(KeyCode::Delete));
+    assert_eq!(app.cmdline.text(), "s -la");
+}
+
+#[test]
+fn dialog_input_delete_key() {
+    let mut app = app_with(vec![]);
+    app.dialog = Some(Dialog::Input {
+        prompt: "Create:".to_string(),
+        input: CmdLine::from_str("abc"),
+        op: PendingOp::MkDir(crate::vfs::transfer::Loc::Local(std::path::PathBuf::from("/tmp"))),
+    });
+    app.handle_key(ctrl('a'));
+    app.handle_key(key(KeyCode::Delete));
+    match app.dialog.as_ref() {
+        Some(Dialog::Input { input, .. }) => assert_eq!(input.text(), "bc"),
+        _ => panic!("input dialog gone"),
+    }
+}

@@ -198,6 +198,7 @@ impl App {
                     KeyCode::Home => input.home(),
                     KeyCode::End => input.end(),
                     KeyCode::Backspace => input.backspace(),
+                    KeyCode::Delete => input.delete(),
                     KeyCode::Char(c) if ctrl => match c {
                         'a' => input.home(),
                         'e' => input.end(),

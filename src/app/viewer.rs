@@ -453,6 +453,7 @@ Panels:
 Command line:
   printable              type into command line
   c-a/e c-b/f c-u/k c-w  line editing
+  Backspace / Delete     delete left / under cursor
   Esc                    clear line
   c-v                    insert name under cursor (quoted)
   c-p/c-n  c-g           history prev/next · search

@@ -152,6 +152,11 @@ impl App {
                     b.backspace();
                 }
             }
+            KeyCode::Delete => {
+                if let Some(b) = self.settings.as_mut().and_then(|s| s.editing.as_mut()) {
+                    b.delete();
+                }
+            }
             KeyCode::Left => {
                 if let Some(b) = self.settings.as_mut().and_then(|s| s.editing.as_mut()) {
                     b.left();

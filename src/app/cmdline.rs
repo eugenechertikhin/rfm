@@ -28,6 +28,13 @@ impl CmdLine {
         }
     }
 
+    /// Удалить символ под курсором (DEL); курсор остаётся на месте.
+    pub fn delete(&mut self) {
+        if self.cursor < self.chars.len() {
+            self.chars.remove(self.cursor);
+        }
+    }
+
     pub fn home(&mut self) {
         self.cursor = 0;
     }
@@ -80,3 +87,7 @@ impl CmdLine {
         Self { chars, cursor }
     }
 }
+
+#[cfg(test)]
+#[path = "cmdline_test.rs"]
+mod tests;

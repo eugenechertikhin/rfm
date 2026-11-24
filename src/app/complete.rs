@@ -4,7 +4,7 @@
 //! всю строку до курсора), делим на директорию и префикс-basename (учитывая `/`,
 //! `~`, абсолютные пути), ищем записи в директории с этим префиксом (регистрозависимо).
 //! Один вариант — дополняем сразу; несколько — режим выбора (`Shift+Tab`/`→`/`←`,
-//! `Enter` — принять, `Esc` — отмена, печать/`Backspace` — правит строку и перестраивает).
+//! `Enter` — принять, `Esc` — отмена, печать/`Backspace`/`Delete` — правит строку и перестраивает).
 
 use std::path::{Path, PathBuf};
 
@@ -61,8 +61,12 @@ pub(super) fn complete_key(
                 *comp = None;
                 CompleteKey::Consumed(None)
             }
-            KeyCode::Backspace => {
-                cmd.backspace();
+            KeyCode::Backspace | KeyCode::Delete => {
+                if key.code == KeyCode::Delete {
+                    cmd.delete();
+                } else {
+                    cmd.backspace();
+                }
                 rebuild(cmd, comp, base, whole_line);
                 CompleteKey::Consumed(None)
             }

@@ -154,6 +154,11 @@ impl App {
                     self.dialog = Some(Dialog::Input { prompt, input, op });
                     Action::None
                 }
+                KeyCode::Delete => {
+                    input.delete();
+                    self.dialog = Some(Dialog::Input { prompt, input, op });
+                    Action::None
+                }
                 KeyCode::Left => {
                     input.left();
                     self.dialog = Some(Dialog::Input { prompt, input, op });

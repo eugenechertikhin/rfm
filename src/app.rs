@@ -536,6 +536,10 @@ impl App {
                 self.cmdline.backspace();
                 Action::None
             }
+            KeyCode::Delete => {
+                self.cmdline.delete();
+                Action::None
+            }
 
             // Редактирование командной строки (emacs-style).
             KeyCode::Char('a') if ctrl => {
