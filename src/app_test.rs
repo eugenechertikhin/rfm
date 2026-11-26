@@ -421,10 +421,10 @@ fn dir_entry(name: &str) -> VfsEntry {
 }
 
 #[test]
-fn ctrl_v_inserts_quoted_name_under_cursor() {
+fn ctrl_v_inserts_escaped_name_under_cursor() {
     let mut app = app_with(vec![entry("a b.txt"), entry("c")]);
     app.handle_key(ctrl('v'));
-    assert_eq!(app.cmdline.text(), "'a b.txt' "); // всегда в одинарных кавычках + пробел
+    assert_eq!(app.cmdline.text(), "a\\ b.txt "); // пробел экранирован `\` + пробел после
     // вставка идёт в позицию курсора командной строки
     app.cmdline.clear();
     for ch in "vim ".chars() {
@@ -432,11 +432,11 @@ fn ctrl_v_inserts_quoted_name_under_cursor() {
     }
     app.active_panel_mut().cursor = 1;
     app.handle_key(ctrl('v'));
-    assert_eq!(app.cmdline.text(), "vim 'c' ");
+    assert_eq!(app.cmdline.text(), "vim c "); // обычное имя — как есть
     // подряд — имена через пробел, курсор за пробелом
     app.active_panel_mut().cursor = 0;
     app.handle_key(ctrl('v'));
-    assert_eq!(app.cmdline.text(), "vim 'c' 'a b.txt' ");
+    assert_eq!(app.cmdline.text(), "vim c a\\ b.txt ");
     assert_eq!(app.cmdline.cursor, app.cmdline.chars.len());
 }
 
@@ -446,7 +446,7 @@ fn ctrl_v_on_dotdot_inserts_dotdot() {
     // добавим ".." в начало списка через reload на реальной директории было бы сложно;
     // проверим директорию: имя без слэша.
     app.handle_key(ctrl('v'));
-    assert_eq!(app.cmdline.text(), "'sub' ");
+    assert_eq!(app.cmdline.text(), "sub ");
 }
 
 #[test]

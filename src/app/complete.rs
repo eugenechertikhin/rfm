@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::CmdLine;
+use crate::shell;
 
 /// Состояние выбора варианта дополнения (когда их несколько).
 pub struct Completion {
@@ -149,31 +150,44 @@ fn current_word(
     whole_line: bool,
 ) -> Option<(PathBuf, String, usize, usize)> {
     let end = cmd.cursor;
-    let token_start = if whole_line {
-        0
-    } else {
-        // назад до пробела
-        let mut i = end;
-        while i > 0 && !cmd.chars[i - 1].is_whitespace() {
-            i -= 1;
-        }
-        i
-    };
-    let token: String = cmd.chars[token_start..end].iter().collect();
+    // В командной строке слово — в синтаксисе шелла (`\ ` — не граница слова,
+    // экранирование снимается); в диалогах строка — литеральный путь.
+    let shell = !whole_line;
+    let token_start = if whole_line { 0 } else { shell_token_start(&cmd.chars[..end]) };
+    let token = &cmd.chars[token_start..end];
 
     // Делим токен на dir-часть (до последнего `/` включительно) и префикс.
-    let (dir_str, prefix, prefix_start) = match token.rfind('/') {
-        Some(pos) => {
-            let dir_part = &token[..=pos];
-            let pref = token[pos + 1..].to_string();
-            let pstart = token_start + dir_part.chars().count();
-            (dir_part.to_string(), pref, pstart)
-        }
-        None => (String::new(), token.clone(), token_start),
+    let slash = token.iter().rposition(|&c| c == '/');
+    let (dir_raw, pref_raw) = match slash {
+        Some(pos) => (&token[..=pos], &token[pos + 1..]),
+        None => (&token[..0], token),
     };
+    let text = |cs: &[char]| -> String {
+        let s: String = cs.iter().collect();
+        if shell { shell::shell_unescape(&s) } else { s }
+    };
+    let prefix_start = token_start + dir_raw.len();
 
-    let dir = resolve_dir(&dir_str, base)?;
-    Some((dir, prefix, prefix_start, end))
+    let dir = resolve_dir(&text(dir_raw), base)?;
+    Some((dir, text(pref_raw), prefix_start, end))
+}
+
+/// Начало последнего шеллового слова: назад до пробела, не экранированного `\`.
+fn shell_token_start(chars: &[char]) -> usize {
+    // Проход вперёд — чтобы корректно учесть `\\` (экранированный слэш).
+    let mut start = 0;
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '\\' => i += 2,
+            c if c.is_whitespace() => {
+                i += 1;
+                start = i;
+            }
+            _ => i += 1,
+        }
+    }
+    start.min(chars.len())
 }
 
 /// Разрешает dir-часть токена в путь (учитывая `/`, `~`, относительность к панели).
@@ -209,15 +223,11 @@ fn candidates(dir: &Path, prefix: &str) -> Vec<String> {
     out
 }
 
-/// Заменяет `[start..end)` в буфере на имя (при необходимости в кавычках; для
+/// Заменяет `[start..end)` в буфере на имя (в командной строке — экранированное; для
 /// директории добавляет `/`), ставит курсор после вставки.
 fn apply(cmd: &mut CmdLine, dir: &Path, start: usize, end: usize, name: &str, quote: bool) {
     let is_dir = dir.join(name).is_dir();
-    let mut text = if quote && needs_quote(name) {
-        quote_name(name)
-    } else {
-        name.to_string()
-    };
+    let mut text = if quote { shell::shell_escape(name) } else { name.to_string() };
     if is_dir {
         text.push('/');
     }
@@ -228,26 +238,6 @@ fn apply(cmd: &mut CmdLine, dir: &Path, start: usize, end: usize, name: &str, qu
     cmd.cursor = start + ins.len();
 }
 
-/// Нужны ли кавычки (есть пробелы/спецсимволы шелла).
-fn needs_quote(s: &str) -> bool {
-    s.is_empty()
-        || s.chars()
-            .any(|c| !(c.is_ascii_alphanumeric() || "._-+@%=:,~".contains(c)))
-}
-
-/// Одинарные кавычки с экранированием внутренних `'` (как `Ctrl+v`).
-fn quote_name(s: &str) -> String {
-    let mut out = String::from("'");
-    for c in s.chars() {
-        if c == '\'' {
-            out.push_str("'\\''");
-        } else {
-            out.push(c);
-        }
-    }
-    out.push('\'');
-    out
-}
 
 #[cfg(test)]
 #[path = "complete_test.rs"]

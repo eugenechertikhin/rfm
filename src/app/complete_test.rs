@@ -110,13 +110,34 @@ fn directory_gets_trailing_slash() {
 }
 
 #[test]
-fn quotes_names_with_spaces_in_cmdline() {
+fn escapes_names_with_spaces_in_cmdline() {
     let dir = tmp_with(&["my file.txt"]);
     let mut cmd = buf("my");
     let mut comp = None;
-    // quote=true (командная строка) → имя с пробелом в кавычках.
+    // quote=true (командная строка) → пробел экранирован `\`.
     complete_key(&mut cmd, &mut comp, Some(&dir), false, true, backtab());
-    assert_eq!(cmd.text(), "'my file.txt'");
+    assert_eq!(cmd.text(), "my\\ file.txt");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn continues_escaped_prefix_in_cmdline() {
+    // Уже введённое `my\ f` — одно слово с префиксом "my f" (не граница по пробелу).
+    let dir = tmp_with(&["my file.txt", "my foo/", "other"]);
+    let mut cmd = buf("cat my\\ fi");
+    let mut comp = None;
+    complete_key(&mut cmd, &mut comp, Some(&dir), false, true, backtab());
+    assert_eq!(cmd.text(), "cat my\\ file.txt");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn completes_inside_escaped_directory() {
+    let dir = tmp_with(&["my dir/", "my dir/inner.txt"]);
+    let mut cmd = buf("ls my\\ dir/in");
+    let mut comp = None;
+    complete_key(&mut cmd, &mut comp, Some(&dir), false, true, backtab());
+    assert_eq!(cmd.text(), "ls my\\ dir/inner.txt");
     std::fs::remove_dir_all(&dir).ok();
 }
 

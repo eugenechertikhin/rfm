@@ -28,6 +28,46 @@ fn parse_shell() {
 }
 
 #[test]
+fn parse_cd_unescapes_argument() {
+    assert_eq!(parse("cd My\\ Dir"), ParsedCommand::Cd("My Dir".to_string()));
+    assert_eq!(parse("cd 'My Dir'"), ParsedCommand::Cd("My Dir".to_string()));
+    assert_eq!(parse("cd \"a \\$b\""), ParsedCommand::Cd("a $b".to_string()));
+    assert_eq!(parse("cd a\\(1\\)"), ParsedCommand::Cd("a(1)".to_string()));
+}
+
+#[test]
+fn escape_plain_name_unchanged() {
+    assert_eq!(shell_escape("report.txt"), "report.txt");
+    assert_eq!(shell_escape(".."), "..");
+    assert_eq!(shell_escape("файл-1_2.txt"), "файл-1_2.txt");
+    // `~`/`=` экранируются только в начале.
+    assert_eq!(shell_escape("a~b=c"), "a~b=c");
+}
+
+#[test]
+fn escape_special_chars_with_backslash() {
+    assert_eq!(shell_escape("My Doc (1).txt"), "My\\ Doc\\ \\(1\\).txt");
+    assert_eq!(shell_escape("it's"), "it\\'s");
+    assert_eq!(shell_escape("a$b&c;d|e"), "a\\$b\\&c\\;d\\|e");
+    assert_eq!(shell_escape("*?[x]"), "\\*\\?\\[x\\]");
+    assert_eq!(shell_escape("~home"), "\\~home");
+    assert_eq!(shell_escape("a\\b"), "a\\\\b");
+}
+
+#[test]
+fn escape_control_chars_fall_back_to_quotes() {
+    assert_eq!(shell_escape("a\nb"), "'a\nb'");
+    assert_eq!(shell_escape(""), "''");
+}
+
+#[test]
+fn escape_unescape_roundtrip() {
+    for s in ["My Doc (1).txt", "it's", "a\\b\"c", "~x", "#tag", "a\nb", "plain"] {
+        assert_eq!(shell_unescape(&shell_escape(s)), s, "roundtrip {s:?}");
+    }
+}
+
+#[test]
 fn quote_escapes_single_quotes() {
     assert_eq!(shell_quote("a'b"), "'a'\\''b'");
     assert_eq!(shell_quote("./x y"), "'./x y'");

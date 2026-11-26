@@ -726,15 +726,15 @@ impl App {
         self.move_cursor(delta);
     }
 
-    /// `Ctrl+v` — вставить имя записи под курсором в командную строку (в позицию курсора),
-    /// всегда в одинарных кавычках (пробелы/спецсимволы не нужно разбирать). `..` → `'..'`.
+    /// `Ctrl+v` — вставить имя записи под курсором в командную строку (в позицию курсора):
+    /// обычное имя как есть, пробелы/спецсимволы экранируются `\` (см. `shell_escape`).
     fn insert_name_under_cursor(&mut self) {
         let panel = self.active_panel();
         let Some(e) = panel.entries.get(panel.cursor) else {
             return;
         };
-        // Имя в кавычках + пробел — можно сразу вставлять следующее.
-        let quoted = format!("{} ", shell::shell_quote(&e.name));
+        // Экранированное имя + пробел — можно сразу вставлять следующее.
+        let quoted = format!("{} ", shell::shell_escape(&e.name));
         for c in quoted.chars() {
             self.cmdline.insert(c);
         }
@@ -785,7 +785,8 @@ impl App {
                 ParsedCommand::Cd(arg) => {
                     // Пишем в историю нетривиальные cd (пропускаем `cd` и `cd ..`).
                     if !arg.is_empty() && arg != ".." {
-                        self.history.record(&format!("cd {arg}"));
+                        // Пишем строку как введена (с экранированием) — её же и повторим.
+                        self.history.record(line.trim());
                         self.hist_nav = None;
                     }
                     let action = self.do_cd(&arg);

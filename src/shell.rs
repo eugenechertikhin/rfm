@@ -36,7 +36,7 @@ pub fn parse(line: &str) -> ParsedCommand {
     let mut it = trimmed.splitn(2, char::is_whitespace);
     let first = it.next().unwrap_or("");
     if first == "cd" {
-        let arg = it.next().unwrap_or("").trim().to_string();
+        let arg = shell_unescape(it.next().unwrap_or("").trim());
         ParsedCommand::Cd(arg)
     } else {
         ParsedCommand::Shell(trimmed.to_string())
@@ -46,6 +46,65 @@ pub fn parse(line: &str) -> ParsedCommand {
 /// Оборачивает строку в одинарные кавычки для безопасной передачи в shell.
 pub fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Символы, которые шелл трактует особо и которые в имени экранируются `\`.
+const SHELL_SPECIAL: &str = " \t'\"\\$`!&;|<>()[]{}*?#^";
+
+/// Экранирует имя для вставки в командную строку (`Ctrl+v`, автодополнение):
+/// обычное имя — как есть, спецсимволы и пробелы — через `\`, ведущие `~`/`=` —
+/// тоже. Имя с управляющими символами (перевод строки и т.п.) `\` не спасти —
+/// для него запасной вариант в одинарных кавычках.
+pub fn shell_escape(s: &str) -> String {
+    if s.is_empty() || s.chars().any(|c| c.is_control() && c != '\t') {
+        return shell_quote(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    for (i, c) in s.chars().enumerate() {
+        if SHELL_SPECIAL.contains(c) || (i == 0 && (c == '~' || c == '=')) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Снимает шелловое экранирование с аргумента: `\x` → `x`, `'…'` — буквально,
+/// `"…"` — с `\` только перед `$`, `` ` ``, `"`, `\`. Неэкранированные пробелы
+/// остаются как есть (`cd ~/some dir` работает без кавычек).
+pub fn shell_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '\\' => {
+                if let Some(n) = it.next() {
+                    out.push(n);
+                }
+            }
+            '\'' => {
+                for n in it.by_ref() {
+                    if n == '\'' {
+                        break;
+                    }
+                    out.push(n);
+                }
+            }
+            '"' => {
+                while let Some(n) = it.next() {
+                    match n {
+                        '"' => break,
+                        '\\' if matches!(it.peek(), Some('$' | '`' | '"' | '\\')) => {
+                            out.push(it.next().unwrap());
+                        }
+                        _ => out.push(n),
+                    }
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 fn shell_program() -> String {

@@ -455,7 +455,7 @@ Command line:
   c-a/e c-b/f c-u/k c-w  line editing
   Backspace / Delete     delete left / under cursor
   Esc                    clear line
-  c-v                    insert name under cursor (quoted)
+  c-v                    insert name under cursor (escaped)
   c-p/c-n  c-g           history prev/next · search
   c-r                    reload directory content
   c-o                    show shell screen
